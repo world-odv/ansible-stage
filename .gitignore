@@ -1,0 +1,10 @@
+# Stub .gitignore for ansible-stage (repo-level).
+*.retry
+*.log
+*.bak
+*.backup
+.cache/
+tmp/
+vault/
+**/*.key
+**/*.pem
