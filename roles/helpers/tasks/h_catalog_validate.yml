@@ -1,0 +1,196 @@
+# HELPERS | TASKS | HELPER CATALOG VALIDATE
+# vars:
+#   key_catalog: mapping
+
+- name: "HELPER CATALOG VALIDATE | key_catalog exists"
+  ansible.builtin.assert:
+    that:
+      - key_catalog is defined and key_catalog is mapping
+    fail_msg: "Validation failed: key_catalog is missing or invalid"
+
+# defaults.apt
+- name: "HELPER CATALOG VALIDATE | defaults.apt structure"
+  ansible.builtin.assert:
+    that:
+      - key_catalog.defaults is defined and key_catalog.defaults is mapping
+      - key_catalog.defaults.apt is defined and key_catalog.defaults.apt is mapping
+
+      - key_catalog.defaults.apt.suite is defined and key_catalog.defaults.apt.suite is string and (key_catalog.defaults.apt.suite | trim | length) > 0
+      - key_catalog.defaults.apt.components is defined and key_catalog.defaults.apt.components is sequence and key_catalog.defaults.apt.components is not string
+      - key_catalog.defaults.apt.architectures is defined and key_catalog.defaults.apt.architectures is sequence and key_catalog.defaults.apt.architectures is not string
+
+      - key_catalog.defaults.apt.sources_dir is defined and key_catalog.defaults.apt.sources_dir is string and (key_catalog.defaults.apt.sources_dir | trim | length) > 0
+      - key_catalog.defaults.apt.keyrings_dir is defined and key_catalog.defaults.apt.keyrings_dir is string and (key_catalog.defaults.apt.keyrings_dir | trim | length) > 0
+
+      - key_catalog.defaults.apt.prefer_deb822 is defined and key_catalog.defaults.apt.prefer_deb822 is boolean
+    fail_msg: "Validation failed: defaults.apt block is invalid"
+
+- name: "HELPER CATALOG VALIDATE | defaults.apt.components items"
+  ansible.builtin.assert:
+    that:
+      - component_item is string and (component_item | trim | length) > 0
+    fail_msg: "Validation failed: defaults.apt.components contains invalid item: {{ component_item | to_json }}"
+  loop: "{{ key_catalog.defaults.apt.components }}"
+  loop_control:
+    loop_var: component_item
+
+- name: "HELPER CATALOG VALIDATE | defaults.apt.architectures items"
+  ansible.builtin.assert:
+    that:
+      - architecture_item is string and (architecture_item | trim | length) > 0
+    fail_msg: "Validation failed: defaults.apt.architectures contains invalid item: {{ architecture_item | to_json }}"
+  loop: "{{ key_catalog.defaults.apt.architectures }}"
+  loop_control:
+    loop_var: architecture_item
+
+# keyrings
+- name: "HELPER CATALOG VALIDATE | keyrings is mapping (optional)"
+  ansible.builtin.assert:
+    that:
+      - key_catalog.keyrings is mapping
+    fail_msg: "Validation failed: keyrings must be mapping"
+  when: key_catalog.keyrings is defined
+
+- name: "HELPER CATALOG VALIDATE | validate keyrings entries (optional)"
+  ansible.builtin.assert:
+    that:
+      - key_item.value is mapping
+      - key_item.value.type is defined and key_item.value.type is string
+      - key_item.value.type in ['armored_url','dearmored_url','file','embedded']
+
+      - key_item.value.dest is defined and key_item.value.dest is string and (key_item.value.dest | trim | length) > 0
+
+      - (key_item.value.type not in ['armored_url','dearmored_url']) or
+        (
+          (key_item.value.url is defined and key_item.value.url is string and (key_item.value.url | trim | length) > 0) or
+          (key_item.value.fingerprint is defined and key_item.value.fingerprint is string and (key_item.value.fingerprint | trim | length) > 0) or
+          (key_item.value.fingerprints is defined and key_item.value.fingerprints is sequence and key_item.value.fingerprints is not string and (key_item.value.fingerprints | length) > 0)
+        )
+
+      - (key_item.value.type != 'file') or
+        (key_item.value.path is defined and key_item.value.path is string and (key_item.value.path | trim | length) > 0)
+
+      - (key_item.value.type != 'embedded') or
+        (key_item.value.content is defined and key_item.value.content is string and (key_item.value.content | trim | length) > 0)
+
+      # owner/group/mode optional
+      - key_item.value.owner is not defined or (key_item.value.owner is string and (key_item.value.owner | trim | length) > 0)
+      - key_item.value.group is not defined or (key_item.value.group is string and (key_item.value.group | trim | length) > 0)
+      - key_item.value.mode  is not defined or (key_item.value.mode  is string and (key_item.value.mode  | trim | length) > 0)
+
+      # fingerprint optional
+      - key_item.value.fingerprints is not defined or
+        (key_item.value.fingerprints is sequence and key_item.value.fingerprints is not string and (key_item.value.fingerprints | length) > 0)
+    fail_msg: "Validation failed: keyring config is invalid for {{ key_item.key }}"
+  loop: "{{ (key_catalog.keyrings | default({})) | dict2items }}"
+  loop_control:
+    loop_var: key_item
+    label: "key={{ key_item.key }}"
+  when: key_catalog.keyrings is defined
+
+- name: "HELPER CATALOG VALIDATE | keyrings.fingerprints items are non-empty strings (optional)"
+  ansible.builtin.assert:
+    that:
+      - key_item.1 is string and (key_item.1 | trim | length) > 0
+    fail_msg: >-
+      Validation failed: keyring fingerprint item is invalid for {{ key_item.0.key }}: {{ key_item.1 | to_json }}
+  loop: "{{ query('subelements', (key_catalog.keyrings | dict2items), 'value.fingerprints', {'skip_missing': true}) }}"
+  loop_control:
+    loop_var: key_item
+    label: "key={{ key_item.0.key }} fingerprint={{ key_item.1 | to_json }}"
+  when: key_catalog.keyrings is defined
+
+# repos
+- name: "HELPER CATALOG VALIDATE | repos is mapping"
+  ansible.builtin.assert:
+    that:
+      - key_catalog.repos is defined and key_catalog.repos is mapping
+    fail_msg: "Validation failed: repos block is missing or invalid"
+
+- name: "HELPER CATALOG VALIDATE | validate each repo + dependencies"
+  ansible.builtin.include_tasks: h_repo_validate.yml
+  vars:
+    repo_name: "{{ repo_item.key }}"
+  loop: "{{ key_catalog.repos | dict2items }}"
+  loop_control:
+    loop_var: repo_item
+    label: "repo={{ repo_item.key }}"
+
+# packages
+- name: "HELPER CATALOG VALIDATE | packages is mapping"
+  ansible.builtin.assert:
+    that:
+      - key_catalog.packages is defined and key_catalog.packages is mapping
+    fail_msg: "Validation failed: packages block is missing or invalid"
+
+- name: "HELPER CATALOG VALIDATE | validate packages entries"
+  ansible.builtin.assert:
+    that:
+      - package_item.value is mapping
+
+      - package_item.value.manager is defined and package_item.value.manager is string
+      - package_item.value.manager in ['apt','snap','deb_url','deb_file']
+
+      - package_item.value.names is defined and package_item.value.names is sequence and package_item.value.names is not string
+      - (package_item.value.names | length) > 0
+
+      # repos (optional) - a list, but each item must exist in key_catalog.repos
+      - package_item.value.repos is not defined
+        or (
+          package_item.value.repos is sequence and
+          package_item.value.repos is not string and
+          ((package_item.value.repos | difference(key_catalog.repos.keys() | list)) | length) == 0
+        )
+
+      # notify (optional)
+      - package_item.value.notify is not defined or
+        (package_item.value.notify is sequence and package_item.value.notify is not string)
+    fail_msg: "Validation failed: package config is invalid for {{ package_item.key }}"
+  loop: "{{ key_catalog.packages | dict2items }}"
+  loop_control:
+    loop_var: package_item
+    label: "package={{ package_item.key }}"
+
+- name: "HELPER CATALOG VALIDATE | validate deb_url / deb_file fields"
+  ansible.builtin.assert:
+    that:
+      - package_item.value.manager != 'deb_url' or (
+          package_item.value.deb is defined and package_item.value.deb is mapping and
+          package_item.value.deb.version is defined and package_item.value.deb.version is string and (package_item.value.deb.version | trim | length) > 0 and
+          package_item.value.deb.url is defined and package_item.value.deb.url is string and (package_item.value.deb.url | trim | length) > 0 and
+          package_item.value.deb.dest is defined and package_item.value.deb.dest is string and (package_item.value.deb.dest | trim | length) > 0 and
+          (package_item.value.deb.dest | trim) is match('^/')
+        )
+      - package_item.value.manager != 'deb_file' or (
+          package_item.value.deb is defined and package_item.value.deb is mapping and
+          package_item.value.deb.path is defined and package_item.value.deb.path is string and (package_item.value.deb.path | trim | length) > 0 and
+          (package_item.value.deb.path | trim) is match('^/')
+        )
+    fail_msg: "Validation failed: deb config is invalid for {{ package_item.key }}"
+  loop: "{{ key_catalog.packages | dict2items }}"
+  loop_control:
+    loop_var: package_item
+    label: "package={{ package_item.key }}"
+
+- name: "HELPER CATALOG VALIDATE | package.names is a list"
+  ansible.builtin.assert:
+    that:
+      - package_item.value.names is defined and package_item.value.names is sequence and package_item.value.names is not string
+    fail_msg: >-
+      Validation failed: package names must be list of strings for {{ package_item.key }}, got {{ package_item.value.names | to_json }}
+  loop: "{{ key_catalog.packages | dict2items }}"
+  loop_control:
+    loop_var: package_item
+    label: "package={{ package_item.key }}"
+  when: package_item.value.names is defined
+
+- name: "HELPER CATALOG VALIDATE | package.names items are non-empty strings"
+  ansible.builtin.assert:
+    that:
+      - package_item.1 is string and (package_item.1 | trim | length) > 0
+    fail_msg: >-
+      Validation failed: package names contains invalid item for {{ package_item.0.key }}: {{ package_item.1 | to_json }}
+  loop: "{{ query('subelements', (key_catalog.packages | dict2items), 'value.names', {'skip_missing': true}) }}"
+  loop_control:
+    loop_var: package_item
+    label: "package={{ package_item.0.key }} name={{ package_item.1 | to_json }}"

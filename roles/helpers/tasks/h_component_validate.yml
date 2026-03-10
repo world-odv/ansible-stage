@@ -1,0 +1,74 @@
+# HELPERS | TASKS | HELPER COMPONENT VALIDATE
+# vars:
+#   component_group: string
+#   component_name: string
+
+- name: "HELPER COMPONENT VALIDATE | {{ component_group }}:{{ component_name }} | component exists"
+  ansible.builtin.assert:
+    that:
+      - key_components is defined and key_components is mapping
+      - key_components[component_group] is defined and key_components[component_group] is mapping
+      - key_components[component_group][component_name] is defined and key_components[component_group][component_name] is mapping
+    fail_msg: "Validation failed: component config is missing or invalid"
+
+- name: "HELPER COMPONENT VALIDATE | {{ component_group }}:{{ component_name }} | base fields"
+  ansible.builtin.assert:
+    that:
+      - key_components[component_group][component_name].enabled is defined and
+        key_components[component_group][component_name].enabled is boolean
+
+      - key_components[component_group][component_name].uses is defined and
+        key_components[component_group][component_name].uses is mapping
+
+      - key_components[component_group][component_name].uses.packages and
+        key_components[component_group][component_name].uses.packages is sequence and
+        key_components[component_group][component_name].uses.packages is not string
+    fail_msg: >-
+      Validation failed: component base fields are invalid
+
+- name: "HELPER COMPONENT VALIDATE | {{ component_group }}:{{ component_name }} | uses.packages items are strings"
+  ansible.builtin.assert:
+    that:
+      - package_item is string
+      - (package_item | trim | length) > 0
+    fail_msg: "Validation failed: packages list contains invalid item: {{ package_item | to_json }}"
+  loop: "{{ key_components[component_group][component_name].uses.packages }}"
+  loop_control:
+    loop_var: package_item
+    label: "{{ component_group }}:{{ component_name }}:{{ package_item }}"
+
+- name: "HELPER COMPONENT VALIDATE | {{ component_group }}:{{ component_name }} | tier/profiles consistency (optional)"
+  ansible.builtin.assert:
+    that:
+      - key_components[component_group][component_name].tier is defined and
+        key_components[component_group][component_name].tier is string and
+        key_components[component_group][component_name].tier in ['micro','low','mid','high','top', 'global', 'ru', 'strict', 'server', 'client']
+
+      - key_components[component_group][component_name].profiles is defined and
+        key_components[component_group][component_name].profiles is mapping
+
+      - key_components[component_group][component_name].profiles[key_components[component_group][component_name].tier] is defined
+    fail_msg: >-
+      Validation failed: tier and profiles are inconsistent.
+      tier="{{ key_components[component_group][component_name].tier | default('UNDEF') }}"
+      profiles keys={{ (key_components[component_group][component_name].profiles | default({})).keys() | list }}
+  when:
+    - key_components[component_group][component_name].tier is defined or
+      key_components[component_group][component_name].profiles is defined
+
+- name: "HELPER COMPONENT VALIDATE | {{ component_group }}:{{ component_name }} | vars is mapping (optional)"
+  ansible.builtin.assert:
+    that:
+      - key_components[component_group][component_name].vars is mapping
+    fail_msg: "Validation failed: vars must be a mapping"
+  when: key_components[component_group][component_name].vars is defined
+
+- name: "HELPER COMPONENT VALIDATE | {{ component_group }}:{{ component_name }} | validate config.files (optional)"
+  ansible.builtin.include_tasks: h_component_config_files_validate.yml
+  vars:
+    config_files: "{{ key_components[component_group][component_name].config.files }}"
+    config_path: "key_components.{{ component_group }}.{{ component_name }}.config.files"
+  when:
+    - key_components[component_group][component_name].config is defined and
+      key_components[component_group][component_name].config is mapping and
+      key_components[component_group][component_name].config.files is defined

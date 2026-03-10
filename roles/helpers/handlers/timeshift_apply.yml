@@ -1,0 +1,12 @@
+# HELPERS | HANDLERS | TIMESHIFT APPLY
+
+- name: "TIMESHIFT APPLY | check installed"
+  ansible.builtin.stat:
+    path: "/usr/bin/timeshift"
+  register: timeshift_bin
+  changed_when: false
+
+- name: "TIMESHIFT APPLY | check config (timeshift --check --scripted)"
+  ansible.builtin.command: "timeshift --check --scripted"
+  changed_when: false
+  when: timeshift_bin.stat.exists | bool

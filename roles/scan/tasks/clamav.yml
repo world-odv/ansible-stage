@@ -1,0 +1,41 @@
+# SCAN | CLAMAV
+
+- name: "CLAMAV | setup component"
+  ansible.builtin.include_role:
+    name: helpers
+    tasks_from: h_component_setup.yml
+  vars:
+    component_group: "scan"
+    component_name: "clamav"
+
+- name: "CLAMAV | ensure quarantine dir"
+  ansible.builtin.file:
+    path: "{{ key_components.scan.clamav.vars.quarantine_dir }}"
+    state: directory
+    owner: "clamav"
+    group: "clamav"
+    mode: "0750"
+
+- name: "CLAMAV | ensure log dir"
+  ansible.builtin.file:
+    path: "{{ key_components.scan.clamav.vars.log_dir }}"
+    state: directory
+    owner: "clamav"
+    group: "clamav"
+    mode: "0750"
+
+- name: "CLAMAV | check database exists"
+  ansible.builtin.stat:
+    path: "/var/lib/clamav/daily.cvd"
+  register: clamav_db_daily
+  changed_when: false
+
+- name: "CLAMAV | initial database update (when missing)"
+  ansible.builtin.command: "freshclam"
+  register: freshclam_run
+  changed_when: true
+  failed_when: false
+  when: not clamav_db_daily.stat.exists | bool
+
+- name: "CLAMAV | flush handlers"
+  ansible.builtin.meta: flush_handlers

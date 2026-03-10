@@ -1,0 +1,90 @@
+# COMMON | TASKS | ROOT
+
+- name: "ROOT | disable root password login"
+  ansible.builtin.user:
+    name: root
+    password_lock: true
+    password: "!"
+
+# Delete sudo from everyone except root and key_system.users.admin.login
+- name: "ROOT | get sudo group entry"
+  ansible.builtin.command: getent group sudo
+  register: sudo_group
+  changed_when: false
+  failed_when: false
+
+- name: "ROOT | parse sudo group members list"
+  ansible.builtin.set_fact:
+    sudo_members: >-
+      {{
+        (
+          (sudo_group.stdout.split(':') | last | trim).split(',')
+          | map('trim')
+          | reject('equalto','')
+          | list
+        )
+        if (sudo_group.rc == 0) and ((sudo_group.stdout | default('') | trim | length) > 0)
+        else []
+      }}
+  changed_when: false
+
+- name: "ROOT | build allowed sudo users list"
+  ansible.builtin.set_fact:
+    allowed_sudo_users: >-
+      {{
+        ([key_system.users.admin.login, 'root']
+          + ([ansible_user] if (keep_current_user_sudo | default(true) | bool) and (ansible_user not in [key_system.users.admin.login, 'root']) else [])
+        ) | unique
+      }}
+  changed_when: false
+
+- name: "ROOT | remove other users from sudo group"
+  ansible.builtin.command: "gpasswd -d {{ sudo_user_item }} sudo"
+  loop: "{{ sudo_members | difference(allowed_sudo_users) }}"
+  loop_control:
+    loop_var: sudo_user_item
+  register: sudo_remove_results
+  changed_when: true
+  failed_when: false
+
+- name: "ROOT | ensure /etc/sudoers permissions"
+  ansible.builtin.file:
+    path: /etc/sudoers
+    state: file
+    owner: root
+    group: root
+    mode: "0440"
+
+- name: "ROOT | ensure /etc/sudoers.d permissions"
+  ansible.builtin.file:
+    path: /etc/sudoers.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: "ROOT | find sudoers.d files"
+  ansible.builtin.find:
+    paths: /etc/sudoers.d
+    file_type: file
+    patterns: ["*"]
+    excludes: ["README", "*~", "*.bak", "*.tmp", "*.swp", ".*"]
+  register: sudoers_d_files
+  changed_when: false
+
+- name: "ROOT | ensure sudoers.d files permissions"
+  ansible.builtin.file:
+    path: "{{ sudoers_file_item.path }}"
+    state: file
+    owner: root
+    group: root
+    mode: "0440"
+  loop: "{{ sudoers_d_files.files }}"
+  loop_control:
+    loop_var: sudoers_file_item
+
+- name: "ROOT | visudo check"
+  ansible.builtin.command: visudo -c
+  register: visudo_check
+  changed_when: false
+  failed_when: visudo_check.rc != 0

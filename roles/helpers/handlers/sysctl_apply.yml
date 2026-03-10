@@ -1,0 +1,12 @@
+# HELPERS | HANDLERS | SYSCTL APPLY
+
+- name: "SYSCTL APPLY | check sysctl exists"
+  ansible.builtin.stat:
+    path: "/usr/sbin/sysctl"
+  register: sysctl_bin
+  changed_when: false
+
+- name: "SYSCTL APPLY | apply (sysctl --system)"
+  ansible.builtin.command: "sysctl --system"
+  changed_when: true
+  when: sysctl_bin.stat.exists | bool

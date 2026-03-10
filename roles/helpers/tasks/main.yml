@@ -1,0 +1,7 @@
+# HELPERS | TASKS | MAIN
+
+- name: "HELPERS | stub"
+  ansible.builtin.debug:
+    msg: "Role loaded, handlers registered"
+  changed_when: false
+  run_once: true

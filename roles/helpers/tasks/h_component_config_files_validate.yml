@@ -1,0 +1,82 @@
+# HELPERS | TASKS | HELPER COMPONENT CONFIG FILES VALIDATE
+# vars:
+#   config_files: mapping
+#   config_path: string
+
+- name: "HELPER COMPONENT CONFIG FILES VALIDATE | {{ config_path }} | config_files is mapping"
+  ansible.builtin.assert:
+    that:
+      - config_files is defined and config_files is mapping
+    fail_msg: "Validation failed: config files block is missing or invalid"
+
+- name: "HELPER COMPONENT CONFIG FILES VALIDATE | {{ config_path }} | each file has numeric id"
+  ansible.builtin.assert:
+    that:
+      - config_item.value.id is defined and config_item.value.id is number
+    fail_msg: "Validation failed: file id is missing or not numeric"
+  loop: "{{ config_files | dict2items }}"
+  loop_control:
+    loop_var: config_item
+    label: "{{ config_path }}.{{ config_item.key }}"
+
+- name: "HELPER COMPONENT CONFIG FILES VALIDATE | {{ config_path }} | validate each file structure"
+  ansible.builtin.assert:
+    that:
+      # use
+      - config_item.value.use is defined and (config_item.value.use is boolean or config_item.value.use is string)
+
+      # dir
+      - config_item.value.dir is defined and config_item.value.dir is mapping
+      - config_item.value.dir.desc is defined and config_item.value.dir.desc is string
+      - config_item.value.dir.owner is defined and config_item.value.dir.owner is string
+      - config_item.value.dir.group is defined and config_item.value.dir.group is string
+      - config_item.value.dir.mode is defined and config_item.value.dir.mode is string
+
+      - config_item.value.dir.apply is defined and config_item.value.dir.apply is mapping
+      - config_item.value.dir.apply.meta is defined and config_item.value.dir.apply.meta is mapping
+      - config_item.value.dir.apply.meta.when in ['never','missing','exists','always']
+
+      # file
+      - config_item.value.file is defined and config_item.value.file is mapping
+      - config_item.value.file.desc is defined and config_item.value.file.desc is string
+      - config_item.value.file.owner is defined and config_item.value.file.owner is string
+      - config_item.value.file.group is defined and config_item.value.file.group is string
+      - config_item.value.file.mode is defined and config_item.value.file.mode is string
+
+      - config_item.value.file.apply is defined and config_item.value.file.apply is mapping
+      - config_item.value.file.apply.meta is defined and config_item.value.file.apply.meta is mapping
+      - config_item.value.file.apply.meta.when in ['never','missing','exists','always']
+
+      - config_item.value.file.apply.content is defined and config_item.value.file.apply.content is mapping
+      - config_item.value.file.apply.content.when in ['never','missing','exists','always']
+      - config_item.value.file.apply.content.mode in ['replace','regex']
+
+      # mode=regex is only allowed if content/meta.when=never/exists (otherwise it will try to fix a non-existent file)
+      - config_item.value.file.apply.content.mode != 'regex' or config_item.value.file.apply.content.when in ['exists','never']
+
+      - config_item.value.file.apply.content.mode != 'regex' or config_item.value.file.apply.meta.when in ['exists','never']
+
+      # content
+      - config_item.value.content is defined and config_item.value.content is string
+
+      # validate optional
+      - config_item.value.validate is not defined or (config_item.value.validate is string and '%s' in (config_item.value.validate | string))
+
+      # notify optional
+      - config_item.value.notify is not defined or (config_item.value.notify is sequence and config_item.value.notify is not string)
+    fail_msg: "Validation failed: file config is invalid"
+  loop: "{{ config_files | dict2items }}"
+  loop_control:
+    loop_var: config_item
+    label: "{{ config_path }}.{{ config_item.key }}"
+
+- name: "HELPER COMPONENT CONFIG FILES VALIDATE | {{ config_path }} | validate regex rules (only for mode=regex)"
+  ansible.builtin.include_tasks: h_component_config_file_regex_validate.yml
+  vars:
+    rules_json: "{{ config_item.value.content }}"
+    rules_path: "{{ config_path }}.{{ config_item.key }}.content"
+  loop: "{{ config_files | dict2items }}"
+  loop_control:
+    loop_var: config_item
+    label: "{{ config_path }}.{{ config_item.key }}"
+  when: config_item.value.file.apply.content.mode == 'regex'

@@ -1,0 +1,22 @@
+# PROD | ANSIBLE CONTROLLERS
+
+- name: PROD | ANSIBLE CONTROLLERS
+  hosts:
+    - ansible_controllers
+  gather_facts: true
+  become: true
+
+  roles:
+    - role: helpers
+    - role: common
+    - role: workstation
+    - role: custom
+    - role: remote
+    - role: kernel
+    - role: observability
+    - role: backup
+    - role: network
+    - role: firewall
+    - role: guard
+    - role: scan
+    - role: scm

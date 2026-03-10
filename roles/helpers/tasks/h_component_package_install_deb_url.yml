@@ -1,0 +1,28 @@
+# HELPERS | TASKS | HELPER COMPONENT PACKAGE INSTALL DEB_URL
+# vars:
+#   package_name: string
+
+- name: "HELPER COMPONENT PACKAGE INSTALL DEB_URL | {{ package_name }} | load package config"
+  ansible.builtin.set_fact:
+    package_body: "{{ key_catalog.packages[package_name] }}"
+  changed_when: false
+
+- name: "HELPER COMPONENT PACKAGE INSTALL DEB_URL | {{ package_name }} | ensure deb cache dir exists"
+  ansible.builtin.file:
+    path: "{{ package_body.deb.dest | dirname }}"
+    state: directory
+    owner: "root"
+    group: "root"
+    mode: "0755"
+
+- name: "HELPER COMPONENT PACKAGE INSTALL DEB_URL | {{ package_name }} | download deb"
+  ansible.builtin.get_url:
+    url: "{{ package_body.deb.url | trim }}"
+    dest: "{{ package_body.deb.dest | trim }}"
+    mode: "0644"
+
+- name: "HELPER COMPONENT PACKAGE INSTALL DEB_URL | {{ package_name }} | install deb"
+  ansible.builtin.apt:
+    deb: "{{ package_body.deb.dest | trim }}"
+    state: present
+  notify: "{{ package_body.notify | default(omit) }}"

@@ -1,0 +1,20 @@
+# BACKUP | TASKS | TIMESHIFT
+
+- name: "TIMESHIFT | detect root filesystem UUID (only if auto)"
+  ansible.builtin.command: "findmnt -nro UUID /"
+  register: tmp_backup_device_uuid
+  changed_when: false
+  when: key_components.backup.timeshift.vars.backup_device_uuid == "auto"
+
+- name: "TIMESHIFT | assert UUID detected (only if auto)"
+  ansible.builtin.assert:
+    that:
+      - tmp_backup_device_uuid.stdout is defined
+      - (tmp_backup_device_uuid.stdout | trim | length) > 0
+    fail_msg: "Validation failed: root filesystem UUID auto-detection returned empty value"
+  when: key_components.backup.timeshift.vars.backup_device_uuid == "auto"
+
+- name: "TIMESHIFT | setup component"
+  ansible.builtin.include_role:
+    name: helpers
+    tasks_from: h_component_setup.yml

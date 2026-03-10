@@ -1,0 +1,3823 @@
+ansible_port: 22
+
+key_updates: # common
+  apt:
+    enabled: false
+    update_cache: false
+    upgrade: false
+    autoremove: false
+  snap:
+    enabled: false
+    refresh: false
+    cleanup_old_revisions: false
+
+key_system: # common
+  users:
+    root:
+      lock: false
+    admin:
+      login: "vault.xml"
+      password: "vault.xml"
+      sudo_timeout: 120
+      groups: ["sudo", "adm"]
+  hostname:
+    enabled: false
+  locale:
+    enabled: false
+    langs: ["en"]
+  timezone:
+    enabled: false
+    shift: "utc-0"
+  keyboard:
+    enabled: false
+    gnome:
+      toggle: "grp:alt_shift_toggle"
+
+key_components:
+  common:
+    stage: 100
+    base:
+      enabled: false
+      uses: { packages: ["procps", "curl", "wget", "vim", "iptables"] }
+  workstation:
+    stage: 200
+    nextcloud_desktop:
+      enabled: false
+      uses: { packages: ["nextcloud_desktop"] }
+    libreoffice:
+      enabled: false
+      uses: { packages: ["libreoffice"] }
+    visual_studio_code:
+      enabled: false
+      uses: { packages: ["visual_studio_code"] }
+    ansible:
+      enabled: false
+      uses: { packages: ["ansible"] }
+  custom:
+    stage: 300
+    firefox:
+      enabled: false
+      uses: { packages: ["firefox"] }
+    opera:
+      enabled: false
+      uses: { packages: ["opera"] }
+    veracrypt:
+      enabled: false
+      uses: { packages: ["veracrypt"] }
+    keepassxc:
+      enabled: false
+      uses: { packages: ["keepassxc"] }
+    obsidian:
+      enabled: false
+      uses: { packages: ["obsidian"] }
+    telegram:
+      enabled: false
+      uses: { packages: ["telegram"] }
+    vlc:
+      enabled: false
+      uses: { packages: ["vlc"] }
+    tlp:
+      enabled: false
+      uses: { packages: ["tlp"] }
+      config:
+        files:
+          tlp_main_tlp:
+            use: true
+            id: 1
+            dir:
+              desc: "/etc/default"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply:
+                meta: { when: "always" }
+            file:
+              desc: "tlp"
+              owner: "root"
+              group: "root"
+              mode: "0644"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              START_CHARGE_THRESH_BAT0=20
+              STOP_CHARGE_THRESH_BAT0=80
+            notify: ["TLP | apply"]
+  remote:
+    stage: 1000
+    ssh:
+      enabled: false
+      uses:
+        packages: ["openssh_server"]
+      vars:
+        port: "{{ ansible_port }}"
+        allow_users: ["{{ key_system.users.admin.login }}"]
+        rpf:
+          enabled: false
+          user: "rpf"
+          gateway_ports: "clientspecified"
+          public_keys: ["vault.xml"]
+          permit_listen:
+            - "vault.xml"
+      config:
+        files:
+          ssh_main_sshd_config:
+            use: true
+            id: 1
+            dir:
+              desc: "/etc/ssh"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply:
+                meta: { when: "always" }
+            file:
+              desc: "sshd_config"
+              owner: "root"
+              group: "root"
+              mode: "0644"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              #Include /etc/ssh/sshd_config.d/*.conf
+
+              Protocol 2
+              Port {{ key_components.remote.ssh.vars.port }}
+
+              AddressFamily inet
+              ListenAddress 0.0.0.0
+
+              {% if key_components.remote.ssh.vars.rpf.enabled | bool %}
+              AllowUsers {{ (key_components.remote.ssh.vars.allow_users + [key_components.remote.ssh.vars.rpf.user]) | unique | join(' ') }}
+              {% else %}
+              AllowUsers {{ key_components.remote.ssh.vars.allow_users | unique | join(' ') }}
+              {% endif %}
+
+              PermitRootLogin no
+
+              PasswordAuthentication no
+              PermitEmptyPasswords no
+
+              PermitTunnel no
+              X11Forwarding no
+
+              ChallengeResponseAuthentication no
+              KbdInteractiveAuthentication no
+
+              MaxAuthTries 3
+
+              ClientAliveInterval 120
+              ClientAliveCountMax 3
+
+              UsePAM yes
+              PrintMotd no
+              PrintLastLog yes
+
+              AcceptEnv LANG LC_*
+
+              Subsystem sftp /usr/lib/openssh/sftp-server
+
+              AllowTcpForwarding no
+              GatewayPorts no
+
+              {% if key_components.remote.ssh.vars.rpf.enabled | bool %}
+              Match User {{ key_components.remote.ssh.vars.rpf.user }}
+                AllowTcpForwarding yes
+                GatewayPorts {{ key_components.remote.ssh.vars.rpf.gateway_ports }}
+                X11Forwarding no
+                AllowAgentForwarding no
+                PermitTunnel no
+                PermitTTY no
+                {% if key_components.remote.ssh.vars.rpf.permit_listen | default([]) | length > 0 %}
+                PermitListen {{ key_components.remote.ssh.vars.rpf.permit_listen | join(' ') }}
+                {% endif %}
+              {% endif %}
+            validate: "/usr/sbin/sshd -t -f %s"
+            notify: ["SSH | apply"]
+          ssh_iptables_910_ssh_rules_v4_rules: "{{ key_components.firewall.iptables.config.files.ssh_iptables_910_ssh_rules_v4_rules }}"
+          ssh_fail2ban_main_jail_sshd_local: "{{ key_components.guard.fail2ban.config.files.ssh_fail2ban_main_jail_sshd_local }}"
+    ssh_client:
+      enabled: false
+      uses:
+        packages: ["openssh_client"]
+      vars:
+        service_user: "{{ key_system.users.admin.login }}"
+        remote_user: "rpf"
+        remote_host: "vault.xml"
+        remote_port: "vault.xml"
+        private_key_file: "vault.xml"
+        rpf:
+          enabled: false
+          forwards: ["vault.xml"]
+        socks:
+          enabled: false
+          bind: "127.0.0.1"
+          port: 1081
+      config:
+        files:
+          ssh_client_main_ssh_rpf_env:
+            use: "{{ (key_components.remote.ssh_client.vars.rpf.enabled or key_components.remote.ssh_client.vars.socks.enabled) | bool }}"
+            id: 1
+            dir:
+              desc: "/etc/ssh_rpf"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply:
+                meta: { when: "always" }
+            file:
+              desc: "ssh_rpf.env"
+              owner: "root"
+              group: "root"
+              mode: "0644"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              SSH_USER="{{ key_components.remote.ssh_client.vars.remote_user }}"
+              SSH_HOST="{{ key_components.remote.ssh_client.vars.remote_host }}"
+              SSH_PORT="{{ key_components.remote.ssh_client.vars.remote_port }}"
+              SSH_KEY="{{ key_components.remote.ssh_client.vars.private_key_file }}"
+
+              SOCKS_ENABLED="{{ '1' if key_components.remote.ssh_client.vars.socks.enabled else '0' }}"
+              SOCKS_BIND="{{ key_components.remote.ssh_client.vars.socks.bind }}"
+              SOCKS_PORT="{{ key_components.remote.ssh_client.vars.socks.port }}"
+
+              RPF_ENABLED="{{ '1' if key_components.remote.ssh_client.vars.rpf.enabled else '0' }}"
+              RPF_FORWARDS="{{ key_components.remote.ssh_client.vars.rpf.forwards | join(' ') }}"
+            notify: ["SSH RPF | apply"]
+          ssh_client_main_ssh_rpf_sh:
+            use: "{{ (key_components.remote.ssh_client.vars.rpf.enabled or key_components.remote.ssh_client.vars.socks.enabled) | bool }}"
+            id: 2
+            dir:
+              desc: "/usr/local/bin"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply:
+                meta: { when: "always" }
+            file:
+              desc: "ssh_rpf.sh"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              #!/usr/bin/env bash
+              set -euo pipefail
+
+              ENV_FILE="/etc/ssh_rpf/ssh_rpf.env"
+              if [ -r "${ENV_FILE}" ]; then
+                # shellcheck disable=SC1090
+                . "${ENV_FILE}"
+              fi
+
+              : "${SSH_USER:?Missing SSH_USER}"
+              : "${SSH_HOST:?Missing SSH_HOST}"
+              : "${SSH_PORT:?Missing SSH_PORT}"
+              : "${SSH_KEY:?Missing SSH_KEY}"
+
+              SOCKS_ENABLED="${SOCKS_ENABLED:-0}"
+              SOCKS_BIND="${SOCKS_BIND:-127.0.0.1}"
+              SOCKS_PORT="${SOCKS_PORT:-1081}"
+
+              RPF_ENABLED="${RPF_ENABLED:-0}"
+              RPF_FORWARDS="${RPF_FORWARDS:-}"
+
+              if [ "${SOCKS_ENABLED}" != "1" ] && [ "${RPF_ENABLED}" != "1" ]; then
+                echo "Nothing to do: SOCKS_ENABLED=0 and RPF_ENABLED=0" >&2
+                exit 1
+              fi
+
+              CMD=(
+                ssh
+                -o "IdentitiesOnly=yes"
+                -o "ExitOnForwardFailure=yes"
+                -o "ServerAliveInterval=30"
+                -o "ServerAliveCountMax=3"
+                -o "TCPKeepAlive=yes"
+                -o "StrictHostKeyChecking=accept-new"
+                -i "${SSH_KEY}"
+                -p "${SSH_PORT}"
+                -N
+              )
+
+              if [ "${SOCKS_ENABLED}" = "1" ]; then
+                CMD+=(-D "${SOCKS_BIND}:${SOCKS_PORT}")
+              fi
+
+              if [ "${RPF_ENABLED}" = "1" ]; then
+                for FWD in ${RPF_FORWARDS}; do
+                  CMD+=(-R "${FWD}")
+                done
+              fi
+
+              CMD+=("${SSH_USER}@${SSH_HOST}")
+
+              echo "Start event $(date -u +'%Y-%m-%d %T')"
+              echo "Command:"
+              printf ' %q' "${CMD[@]}"; echo
+
+              exec "${CMD[@]}"
+            validate: "/bin/bash -n %s"
+            notify: ["SSH RPF | apply"]
+          ssh_client_main_ssh_rpf_service:
+            use: "{{ (key_components.remote.ssh_client.vars.rpf.enabled or key_components.remote.ssh_client.vars.socks.enabled) | bool }}"
+            id: 3
+            dir:
+              desc: "/etc/systemd/system"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply:
+                meta: { when: "always" }
+            file:
+              desc: "ssh_rpf.service"
+              owner: "root"
+              group: "root"
+              mode: "0644"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              [Unit]
+              Description=SSH RPF / SOCKS tunnel
+              After=network-online.target
+              Wants=network-online.target
+
+              [Service]
+              Type=simple
+              User={{ key_components.remote.ssh_client.vars.service_user }}
+              Environment="HOME=/home/{{ key_components.remote.ssh_client.vars.service_user }}"
+              EnvironmentFile=/etc/ssh_rpf/ssh_rpf.env
+              ExecStart=/usr/local/bin/ssh_rpf.sh
+              Restart=always
+              RestartSec=10
+              NoNewPrivileges=true
+
+              StandardOutput=journal
+              StandardError=journal
+
+              [Install]
+              WantedBy=multi-user.target
+            notify: ["SSH RPF | apply"]
+  kernel:
+    stage: 1100
+    grub:
+      enabled: false
+      uses:
+        packages: ["grub2_common"]
+      vars:
+        user_login: "vault.xml"
+        password_hash: "vault.xml"
+        timeout_style: "hidden"
+        timeout: 0
+        disable_recovery: true
+      config:
+        files:
+          grub_main_grub:
+            use: true
+            id: 1
+            dir:
+              desc: "/etc/default"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply:
+                meta: { when: "always" }
+            file:
+              desc: "grub"
+              owner: "root"
+              group: "root"
+              mode: "0644"
+              apply:
+                content: { when: "exists", mode: "regex" }
+                meta: { when: "exists" }
+            content: |
+              [
+                { "id": 10, "regex": "^\\s*#?\\s*GRUB_TIMEOUT_STYLE=",    "value": "GRUB_TIMEOUT_STYLE={{ key_components.kernel.grub.vars.timeout_style }}" },
+                { "id": 20, "regex": "^\\s*#?\\s*GRUB_TIMEOUT=",          "value": "GRUB_TIMEOUT={{ key_components.kernel.grub.vars.timeout }}" },
+                { "id": 30, "regex": "^\\s*#?\\s*GRUB_DISABLE_RECOVERY=", "value": "GRUB_DISABLE_RECOVERY=\\\"{{ 'true' if key_components.kernel.grub.vars.disable_recovery else 'false' }}\\\"" }
+              ]
+            validate: "/bin/bash -n %s"
+            notify: ["GRUB | apply"]
+          grub_910_grub_password:
+            use: true
+            id: 2
+            dir:
+              desc: "/etc/grub.d"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply:
+                meta: { when: "always" }
+            file:
+              desc: "910_grub_password"
+              owner: "root"
+              group: "root"
+              mode: "0700"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              #!/bin/sh
+              set -e
+
+              cat << EOF
+              set superusers="{{ key_components.kernel.grub.vars.user_login }}"
+              password_pbkdf2 {{ key_components.kernel.grub.vars.user_login }} {{ key_components.kernel.grub.vars.password_hash }}
+              EOF
+            validate: "/bin/sh -n %s"
+            notify: ["GRUB | apply"]
+    sysctl:
+      enabled: false
+      uses:
+        packages: ["procps"]
+      config:
+        files:
+          sysctl_main_sysctl_conf:
+            use: true
+            id: 1
+            dir:
+              desc: "/etc"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply:
+                meta: { when: "always" }
+            file:
+              desc: "sysctl.conf"
+              owner: "root"
+              group: "root"
+              mode: "0644"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              # SYN / basic DoS hardening
+              net.ipv4.tcp_syncookies = 1
+
+              # ICMP (keep ping, block broadcast ping)
+              net.ipv4.icmp_echo_ignore_broadcasts = 1
+              net.ipv4.icmp_ratelimit = 200
+              net.ipv4.icmp_ratemask = 88089
+
+              # IPv4 hardening (redirects, source route)
+              net.ipv4.conf.all.rp_filter = 1
+              net.ipv4.conf.default.rp_filter = 1
+
+              net.ipv4.conf.all.accept_redirects = 0
+              net.ipv4.conf.default.accept_redirects = 0
+              net.ipv4.conf.all.secure_redirects = 0
+              net.ipv4.conf.default.secure_redirects = 0
+
+              net.ipv4.conf.all.accept_source_route = 0
+              net.ipv4.conf.default.accept_source_route = 0
+
+              net.ipv4.conf.all.send_redirects = 0
+              net.ipv4.conf.default.send_redirects = 0
+
+              net.ipv4.conf.all.log_martians = 1
+              net.ipv4.conf.default.log_martians = 1
+
+              #net.ipv4.ip_forward = 0
+              #net.ipv4.conf.all.src_valid_mark = 0
+
+              # IPv6 redirects hardening (safe even if IPv6 will be enabled later)
+              net.ipv6.conf.all.accept_redirects = 0
+              net.ipv6.conf.default.accept_redirects = 0
+
+              # Kernel info leak hardening
+              kernel.dmesg_restrict = 1
+              kernel.kptr_restrict = 2
+
+              # Symlink/hardlink protections
+              fs.protected_symlinks = 1
+              fs.protected_hardlinks = 1
+              fs.protected_fifos = 2
+              fs.protected_regular = 2
+
+              # Kernel hardening
+              dev.tty.ldisc_autoload = 0
+              fs.suid_dumpable = 0
+              kernel.perf_event_paranoid = 2
+              kernel.unprivileged_bpf_disabled = 1
+              net.core.bpf_jit_harden = 2
+            validate: "/bin/bash -lc 'bad=$(grep -nEv \"^[[:space:]]*($|#|;)\" \"$1\" | grep -nEv \"^[0-9]+:[[:space:]]*[A-Za-z0-9_.]+[[:space:]]*=[[:space:]]*.+$\" || true); if [ -n \"$bad\" ]; then echo \"$bad\" >&2; exit 1; fi' _ %s"
+            notify: ["SYSCTL | apply"]
+          wireguard_sysctl_main_sysctl_conf:
+            use: "{{ key_components.network.wireguard.enabled | bool }}"
+            id: 2
+            dir:
+              desc: "/etc"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply: { meta: { when: "exists" } }
+            file:
+              desc: "sysctl.conf"
+              owner: "root"
+              group: "root"
+              mode: "0644"
+              apply:
+                content: { when: "exists", mode: "regex" }
+                meta: { when: "exists" }
+            content: |
+              [
+                {
+                  "id": 1,
+                  "regex": "^\\s*#?\\s*net\\.ipv4\\.conf\\.all\\.src_valid_mark\\s*=\\s*.*$",
+                  "value": "net.ipv4.conf.all.src_valid_mark = 1"
+                },
+                {
+                  "id": 2,
+                  "regex": "^\\s*#?\\s*net\\.ipv4\\.conf\\.all\\.rp_filter\\s*=\\s*.*$",
+                  "value": "net.ipv4.conf.all.rp_filter = 2"
+                },
+                {
+                  "id": 3,
+                  "regex": "^\\s*#?\\s*net\\.ipv4\\.conf\\.default\\.rp_filter\\s*=\\s*.*$",
+                  "value": "net.ipv4.conf.default.rp_filter = 2"
+                }
+
+                {% if key_components.network.wireguard.tier == 'server' %}
+                ,
+                {
+                  "id": 4,
+                  "regex": "^\\s*#?\\s*net\\.ipv4\\.ip_forward\\s*=\\s*.*$",
+                  "value": "net.ipv4.ip_forward = 1"
+                }
+                {% endif %}
+              ]
+            validate: "/bin/bash -lc 'bad=$(grep -nEv \"^[[:space:]]*($|#|;)\" \"$1\" | grep -nEv \"^[0-9]+:[[:space:]]*[A-Za-z0-9_.]+[[:space:]]*=[[:space:]]*.+$\" || true); if [ -n \"$bad\" ]; then echo \"$bad\" >&2; exit 1; fi' _ %s"
+            notify: ["SYSCTL | apply"]
+  observability:
+    stage: 1200
+    journald:
+      enabled: false
+      uses:
+        packages: ["systemd"]
+      tier: "mid"
+      profiles:
+        mid:
+          SystemMaxUse: "1G"
+          SystemKeepFree: "500M"
+          SystemMaxFileSize: "200M"
+          SystemMaxFiles: "20"
+          RuntimeMaxUse: "128M"
+          MaxRetentionSec: "1month"
+          RateLimitIntervalSec: "30s"
+          RateLimitBurst: "2000"
+          MaxLevelStore: "info"
+      config:
+        files:
+          journald_main_journald_conf:
+            use: true
+            id: 1
+            dir:
+              desc: "/etc/systemd"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply:
+                meta: { when: "always" }
+            file:
+              desc: "journald.conf"
+              owner: "root"
+              group: "root"
+              mode: "0644"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              [Journal]
+              Storage=persistent
+              Compress=yes
+
+              SystemMaxUse={{ key_components.observability.journald.profiles[key_components.observability.journald.tier].SystemMaxUse }}
+              SystemKeepFree={{ key_components.observability.journald.profiles[key_components.observability.journald.tier].SystemKeepFree }}
+              SystemMaxFileSize={{ key_components.observability.journald.profiles[key_components.observability.journald.tier].SystemMaxFileSize }}
+              SystemMaxFiles={{ key_components.observability.journald.profiles[key_components.observability.journald.tier].SystemMaxFiles }}
+              RuntimeMaxUse={{ key_components.observability.journald.profiles[key_components.observability.journald.tier].RuntimeMaxUse }}
+              MaxRetentionSec={{ key_components.observability.journald.profiles[key_components.observability.journald.tier].MaxRetentionSec }}
+
+              RateLimitIntervalSec={{ key_components.observability.journald.profiles[key_components.observability.journald.tier].RateLimitIntervalSec }}
+              RateLimitBurst={{ key_components.observability.journald.profiles[key_components.observability.journald.tier].RateLimitBurst }}
+              MaxLevelStore={{ key_components.observability.journald.profiles[key_components.observability.journald.tier].MaxLevelStore }}
+
+              ForwardToSyslog=no
+              ForwardToKMsg=no
+              ForwardToConsole=no
+              ForwardToWall=no
+            validate: "/usr/bin/python3 -c \"import configparser,sys; p=configparser.ConfigParser(); p.read(sys.argv[1])\" %s"
+            notify: ["JOURNALD | apply"]
+    logrotate:
+      enabled: false
+      uses:
+        packages: ["logrotate"]
+      tier: "mid"
+      profiles:
+        mid:
+          frequency: "weekly"
+          rotate: 4
+          maxsize: "50M"
+      config:
+        files:
+          logrotate_main_logrotate_conf:
+            use: true
+            id: 1
+            dir:
+              desc: "/etc"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply:
+                meta: { when: "always" }
+            file:
+              desc: "logrotate.conf"
+              owner: "root"
+              group: "root"
+              mode: "0644"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              notifempty
+              missingok
+
+              {{ key_components.observability.logrotate.profiles[key_components.observability.logrotate.tier].frequency }}
+              rotate {{ key_components.observability.logrotate.profiles[key_components.observability.logrotate.tier].rotate }}
+              maxsize {{ key_components.observability.logrotate.profiles[key_components.observability.logrotate.tier].maxsize }}
+
+              compress
+              delaycompress
+              dateext
+
+              create 0640 root adm
+              su root adm
+
+              include /etc/logrotate.d
+            validate: "logrotate -d %s"
+            notify: ["LOGROTATE | apply"]
+          clamav_logrotate_main_clamav:
+            use: "{{ key_components.scan.clamav.enabled | bool }}"
+            id: 2
+            dir:
+              desc: "/etc/logrotate.d"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply: { meta: { when: "always" } }
+            file:
+              desc: "clamav"
+              owner: "root"
+              group: "root"
+              mode: "0644"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              {{ key_components.scan.clamav.vars.log_dir }}/*.log {
+                  notifempty
+                  monthly
+                  size 50M
+                  rotate 12
+                  missingok
+                  compress
+                  delaycompress
+                  dateext
+                  su root adm
+                  create 0640 clamav adm
+
+                  postrotate
+                      if [ -d /run/systemd/system ]; then
+                          systemctl -q is-active clamav-daemon && systemctl kill --signal=SIGHUP clamav-daemon || true
+                          systemctl -q is-active clamav-freshclam && systemctl kill --signal=SIGHUP clamav-freshclam || true
+                      else
+                          invoke-rc.d clamav-daemon reload-log > /dev/null || true
+                          invoke-rc.d clamav-freshclam reload-log > /dev/null || true
+                      fi
+                  endscript
+              }
+            notify: ["LOGROTATE | apply"]
+          singbox_logrotate_main_singbox:
+            use: "{{ key_components.network.singbox.enabled | bool }}"
+            id: 10
+            dir:
+              desc: "/etc/logrotate.d"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply:
+                meta: { when: "always" }
+            file:
+              desc: "sing-box"
+              owner: "root"
+              group: "root"
+              mode: "0644"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              {{ key_components.network.singbox.vars.log_file }} {
+                  notifempty
+                  monthly
+                  size 50M
+                  rotate 12
+                  missingok
+                  compress
+                  delaycompress
+                  dateext
+                  copytruncate
+                  su root adm
+                  create 0640 root adm
+              }
+            notify: ["LOGROTATE | apply"]
+          envoy_logrotate_main_envoy:
+            use: "{{ key_components.platform_edge.envoy.enabled | bool }}"
+            id: 11
+            dir:
+              desc: "/etc/logrotate.d"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply:
+                meta: { when: "always" }
+            file:
+              desc: "envoy"
+              owner: "root"
+              group: "root"
+              mode: "0644"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              /var/log/envoy/*.log {
+                  notifempty
+                  daily
+                  minsize 100k
+                  size 50M
+                  rotate 14
+                  missingok
+                  compress
+                  delaycompress
+                  dateext
+                  su root adm
+                  create 0640 envoy envoy
+                  postrotate
+                      curl -s -X POST http://{{ key_components.platform_edge.envoy.vars.admin_bind_address }}:{{ key_components.platform_edge.envoy.vars.admin_port }}/reopen_logs >/dev/null 2>&1 || true
+                  endscript
+              }
+            notify: ["LOGROTATE | apply"]
+  backup:
+    stage: 1300
+    timeshift:
+      enabled: false
+      uses:
+        packages: ["timeshift"]
+      tier: "mid"
+      profiles:
+        mid:
+          schedule_monthly: true
+          schedule_weekly: true
+          schedule_daily: true
+          count_monthly: "6"
+          count_weekly: "4"
+          count_daily: "7"
+      vars:
+        backup_device_uuid: "auto"
+        exclude_common:
+          - "/home/**"
+          - "**/*.log"
+          - "**/*.tmp"
+          - "/tmp/**"
+          - "/var/log/**"
+          - "/var/tmp/**"
+          - "/var/cache/**"
+          - "/var/spool/**"
+          - "/var/lib/apt/lists/**"
+          - "/var/cache/apt/**"
+          - "/var/lib/snapd/snaps/**"
+          - "/var/lib/flatpak/**"
+          - "/var/lib/systemd/coredump/**"
+          - "/var/lib/docker/**"
+          - "/var/lib/containers/**"
+          - "/var/lib/libvirt/images/**"
+          - "/var/snap/**"
+          - "/snap/**"
+          - "/swapfile"
+          - "/root/**"
+      config:
+        files:
+          timeshift_main_timeshift_json:
+            use: true
+            id: 1
+            dir:
+              desc: "/etc/timeshift"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply:
+                meta: { when: "always" }
+            file:
+              desc: "timeshift.json"
+              owner: "root"
+              group: "root"
+              mode: "0644"
+              apply:
+                content:
+                  when: "always" # never | missing (set rights when creating) | exists | always
+                  mode: "replace" # replace | merge | regex
+                meta: { when: "always" }
+            content: |
+              {
+                "backup_device_uuid": "{% if key_components.backup.timeshift.vars.backup_device_uuid == 'auto' %}{{ tmp_backup_device_uuid.stdout | trim }}{% else %}{{ key_components.backup.timeshift.vars.backup_device_uuid }}{% endif %}",
+                "parent_device_uuid": "",
+
+                "do_first_run": "false",
+
+                "btrfs_mode": "false",
+                "include_btrfs_home_for_backup": "false",
+                "include_btrfs_home_for_restore": "false",
+
+                "stop_cron_emails": "true",
+
+                "schedule_monthly": "{{ key_components.backup.timeshift.profiles[key_components.backup.timeshift.tier].schedule_monthly }}",
+                "schedule_weekly": "{{ key_components.backup.timeshift.profiles[key_components.backup.timeshift.tier].schedule_weekly }}",
+                "schedule_daily": "{{ key_components.backup.timeshift.profiles[key_components.backup.timeshift.tier].schedule_daily }}",
+                "schedule_hourly": "false",
+                "schedule_boot": "false",
+
+                "count_monthly": "{{ key_components.backup.timeshift.profiles[key_components.backup.timeshift.tier].count_monthly }}",
+                "count_weekly": "{{ key_components.backup.timeshift.profiles[key_components.backup.timeshift.tier].count_weekly }}",
+                "count_daily": "{{ key_components.backup.timeshift.profiles[key_components.backup.timeshift.tier].count_daily }}",
+                "count_hourly": "0",
+                "count_boot": "0",
+
+                "date_format": "%Y-%m-%d %H:%M:%S",
+                "exclude": {{ key_components.backup.timeshift.vars.exclude_common | to_json }},
+                "exclude-apps": []
+              }
+            validate: "python3 -m json.tool %s"
+            notify: ["TIMESHIFT | apply"]
+  network:
+    stage: 1400
+    resolved:
+      enabled: true
+      uses:
+        packages: ["systemd_resolved"]
+      tier: "global"
+      profiles:
+        global:
+          dns:
+            - "1.1.1.1#cloudflare-dns.com"
+            - "1.0.0.1#cloudflare-dns.com"
+          fallback_dns:
+            - "9.9.9.9#dns.quad9.net"
+            - "149.112.112.112#dns.quad9.net"
+          dnssec: "allow-downgrade"
+          dns_over_tls: "opportunistic"
+        ru:
+          dns:
+            - "94.140.14.14#dns.adguard-dns.com"
+            - "94.140.15.15#dns.adguard-dns.com"
+          fallback_dns:
+            - "77.88.8.8"
+            - "77.88.8.1"
+          dnssec: "allow-downgrade"
+          dns_over_tls: "opportunistic"
+        strict:
+          dns:
+            - "9.9.9.9#dns.quad9.net"
+            - "149.112.112.112#dns.quad9.net"
+          fallback_dns:
+            - "1.1.1.1#cloudflare-dns.com"
+            - "1.0.0.1#cloudflare-dns.com"
+          dnssec: "yes"
+          dns_over_tls: "yes"
+      vars:
+        stub_listener: true
+        cache: true
+        llmnr: "no"
+        mdns: "no"
+        read_etc_hosts: true
+        cloud_init_disable_network_config: true
+        enforce_no_dhcp_dns: true
+      config:
+        files:
+          resolved_main_resolved_conf:
+            use: true
+            id: 1
+            dir:
+              desc: "/etc/systemd"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply: { meta: { when: "always" } }
+            file:
+              desc: "resolved.conf"
+              owner: "root"
+              group: "root"
+              mode: "0644"
+              apply:
+                content: { when: "exists", mode: "regex" }
+                meta: { when: "exists" }
+            content: |
+              [
+                { "id": 1, "regex": "^\\s*DNS\\s*=",              "value": "# DNS= (managed by /etc/systemd/resolved.conf.d/*.conf)" },
+                { "id": 2, "regex": "^\\s*FallbackDNS\\s*=",      "value": "# FallbackDNS= (managed by /etc/systemd/resolved.conf.d/*.conf)" },
+                { "id": 3, "regex": "^\\s*DNSStubListener\\s*=",  "value": "# DNSStubListener= (managed by /etc/systemd/resolved.conf.d/*.conf)" },
+                { "id": 4, "regex": "^\\s*Cache\\s*=",            "value": "# Cache= (managed by /etc/systemd/resolved.conf.d/*.conf)" },
+                { "id": 5, "regex": "^\\s*DNSSEC\\s*=",           "value": "# DNSSEC= (managed by /etc/systemd/resolved.conf.d/*.conf)" },
+                { "id": 6, "regex": "^\\s*DNSOverTLS\\s*=",       "value": "# DNSOverTLS= (managed by /etc/systemd/resolved.conf.d/*.conf)" },
+                { "id": 7, "regex": "^\\s*LLMNR\\s*=",            "value": "# LLMNR= (managed by /etc/systemd/resolved.conf.d/*.conf)" },
+                { "id": 8, "regex": "^\\s*MulticastDNS\\s*=",     "value": "# MulticastDNS= (managed by /etc/systemd/resolved.conf.d/*.conf)" },
+                { "id": 9, "regex": "^\\s*ReadEtcHosts\\s*=",     "value": "# ReadEtcHosts= (managed by /etc/systemd/resolved.conf.d/*.conf)" }
+              ]
+            validate: "/usr/bin/python3 -c \"import configparser,sys; p=configparser.ConfigParser(); p.read(sys.argv[1])\" %s"
+            notify: ["RESOLVED | apply"]
+          resolved_910_resolved_dns_conf:
+            use: true
+            id: 2
+            dir:
+              desc: "/etc/systemd/resolved.conf.d"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply: { meta: { when: "always" } }
+            file:
+              desc: "910_resolved_dns.conf"
+              owner: "root"
+              group: "root"
+              mode: "0644"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              [Resolve]
+              DNS={{ key_components.network.resolved.profiles[key_components.network.resolved.tier].dns | join(' ') }}
+              FallbackDNS={{ key_components.network.resolved.profiles[key_components.network.resolved.tier].fallback_dns | join(' ') }}
+              Domains=~.
+              DNSStubListener={{ 'yes' if key_components.network.resolved.vars.stub_listener else 'no' }}
+              Cache={{ 'yes' if key_components.network.resolved.vars.cache else 'no' }}
+              DNSSEC={{ key_components.network.resolved.profiles[key_components.network.resolved.tier].dnssec }}
+              DNSOverTLS={{ key_components.network.resolved.profiles[key_components.network.resolved.tier].dns_over_tls }}
+              LLMNR={{ key_components.network.resolved.vars.llmnr }}
+              MulticastDNS={{ key_components.network.resolved.vars.mdns }}
+              ReadEtcHosts={{ 'yes' if key_components.network.resolved.vars.read_etc_hosts else 'no' }}
+            validate: "/usr/bin/python3 -c \"import configparser,sys; p=configparser.ConfigParser(); p.read(sys.argv[1])\" %s"
+            notify: ["RESOLVED | apply"]
+    wireguard:
+      enabled: false
+      uses:
+        packages: ["wireguard"]
+      tier: "server"
+      profiles:
+        server:
+          interface:
+            address: "10.10.2.1/24"
+            listen_port: 51820
+            private_key: "vault.xml"
+          peers:
+            - name: "client_1"
+              public_key: "vault.xml"
+              preshared_key: "vault.xml"
+              allowed_ips: ["10.10.2.2/32"]
+              persistent_keepalive: 25
+        client:
+          interface:
+            address: "10.10.2.2/32"
+            private_key: "vault.xml"
+            mtu: 1420
+          peers:
+            - name: "server_1"
+              public_key: "vault.xml"
+              preshared_key: "vault.xml"
+              endpoint: "vault.xml:51820"
+              allowed_ips: ["0.0.0.0/0"]
+              persistent_keepalive: 25
+      vars:
+        nat:
+          external_iface: "ens3" # External server interface
+          source_subnet_v4: "10.10.0.0/16"
+        dns:
+          enabled: false
+          servers: []  # ["1.1.1.1", "1.0.0.1"]
+      config:
+        files:
+          wireguard_server_main_wg0_conf:
+            use: "{{ key_components.network.wireguard.tier == 'server' }}"
+            id: 1
+            dir:
+              desc: "/etc/wireguard"
+              owner: "root"
+              group: "root"
+              mode: "0700"
+              apply: { meta: { when: "always" } }
+            file:
+              desc: "wg0.conf"
+              owner: "root"
+              group: "root"
+              mode: "0600"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            log: false
+            content: |
+              [Interface]
+              Address = {{ key_components.network.wireguard.profiles.server.interface.address }}
+              PrivateKey = {{ key_components.network.wireguard.profiles.server.interface.private_key }}
+              ListenPort = {{ key_components.network.wireguard.profiles.server.interface.listen_port }}
+
+              {% for peer in key_components.network.wireguard.profiles.server.peers %}
+              [Peer]
+              PublicKey = {{ peer.public_key }}
+              {% if peer.preshared_key is defined and (peer.preshared_key | trim | length) > 0 %}
+              PresharedKey = {{ peer.preshared_key }}
+              {% endif %}
+              AllowedIPs = {{ peer.allowed_ips | join(',') }}
+              {% if peer.persistent_keepalive is defined and (peer.persistent_keepalive | int) > 0 %}
+              PersistentKeepalive = {{ peer.persistent_keepalive }}
+              {% endif %}
+
+              {% endfor %}
+            notify: ["WIREGUARD | apply"]
+          wireguard_client_main_wg0_conf:
+            use: "{{ key_components.network.wireguard.tier == 'client' }}"
+            id: 2
+            dir:
+              desc: "/etc/wireguard"
+              owner: "root"
+              group: "root"
+              mode: "0700"
+              apply: { meta: { when: "always" } }
+            file:
+              desc: "wg0.conf"
+              owner: "root"
+              group: "root"
+              mode: "0600"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            log: false
+            content: |
+              [Interface]
+              Address = {{ key_components.network.wireguard.profiles.client.interface.address }}
+              PrivateKey = {{ key_components.network.wireguard.profiles.client.interface.private_key }}
+              {% if key_components.network.wireguard.profiles.client.interface.mtu is defined %}
+              MTU = {{ key_components.network.wireguard.profiles.client.interface.mtu }}
+              {% endif %}
+              {% if key_components.network.wireguard.vars.dns.enabled | bool and (key_components.network.wireguard.vars.dns.servers | default([]) | length) > 0 %}
+              DNS = {{ key_components.network.wireguard.vars.dns.servers | join(',') }}
+              {% endif %}
+
+              {% for peer in key_components.network.wireguard.profiles.client.peers %}
+              [Peer]
+              Endpoint = {{ peer.endpoint }}
+              PublicKey = {{ peer.public_key }}
+              {% if peer.preshared_key is defined and (peer.preshared_key | trim | length) > 0 %}
+              PresharedKey = {{ peer.preshared_key }}
+              {% endif %}
+
+              AllowedIPs = {{ peer.allowed_ips | join(',') }}
+
+              {% if peer.persistent_keepalive is defined and (peer.persistent_keepalive | int) > 0 %}
+              PersistentKeepalive = {{ peer.persistent_keepalive }}
+              {% endif %}
+
+              {% endfor %}
+            notify: ["WIREGUARD | apply"]
+          wireguard_networkmanager_910_wireguard_conf:
+            use: "{{ key_components.network.wireguard.tier == 'client' }}"
+            id: 3
+            dir:
+              desc: "/etc/NetworkManager/conf.d"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply: { meta: { when: "always" } }
+            file:
+              desc: "910_wireguard.conf"
+              owner: "root"
+              group: "root"
+              mode: "0644"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              [keyfile]
+              unmanaged-devices=interface-name:wg0
+            notify: ["NETWORKMANAGER | apply"]
+          wireguard_sysctl_main_sysctl_conf:
+            "{{ key_components.kernel.sysctl.config.files.wireguard_sysctl_main_sysctl_conf }}"
+          wireguard_iptables_911_wireguard_rules_v4_rules:
+            "{{ key_components.firewall.iptables.config.files.wireguard_iptables_911_wireguard_rules_v4_rules}}"
+          wireguard_iptables_910_wireguard_rules_v4_nat_rules:
+            "{{ key_components.firewall.iptables.config.files.wireguard_iptables_910_wireguard_rules_v4_nat_rules}}"
+          wireguard_iptables_910_wireguard_rules_v4_mangle_rules:
+            "{{ key_components.firewall.iptables.config.files.wireguard_iptables_910_wireguard_rules_v4_mangle_rules}}"
+    singbox:
+      enabled: false
+      uses:
+        packages: ["sing_box", "iptables"]
+      tier: "server"
+      profiles:
+        server:
+          users:
+            - name: "client_1"
+              uuid: "vault.xml"
+              flow: "xtls-rprx-vision"
+          reality:
+            private_key: "vault.xml"
+            short_ids:
+              - "vault.xml"
+        client:
+          endpoint: "vault.xml"
+          uuid: "vault.xml"
+          reality:
+            public_key: "vault.xml"
+            short_id: "vault.xml"
+      vars:
+        listen_port: 443
+        reality_server_name: "www.cloudflare.com"
+        log_file: "/var/log/sing-box/sing-box.log"
+        cache_file: "/var/lib/sing-box/cache.db"
+        dns_strategy: "ipv4_only"
+        dns:
+          primary:
+            tag: "doh-cloudflare"
+            server: "1.1.1.1"
+            server_port: 443
+            path: "/dns-query"
+            server_name: "cloudflare-dns.com"
+          secondary:
+            tag: "doh-quad9"
+            server: "9.9.9.9"
+            server_port: 443
+            path: "/dns-query"
+            server_name: "dns.quad9.net"
+      config:
+        files:
+          singbox_server_main_config_json:
+            use: "{{ key_components.network.singbox.tier == 'server' }}"
+            id: 1
+            dir:
+              desc: "/etc/sing-box"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply:
+                meta: { when: "always" }
+            file:
+              desc: "config.json"
+              owner: "root"
+              group: "root"
+              mode: "0600"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              {
+                "log": {
+                  "level": "warn",
+                  "timestamp": true,
+                  "output": "{{ key_components.network.singbox.vars.log_file }}"
+                },
+                "dns": {
+                  "servers": [
+                    {
+                      "type": "local",
+                      "tag": "local"
+                    },
+                    {
+                      "type": "https",
+                      "tag": "{{ key_components.network.singbox.vars.dns.primary.tag }}",
+                      "server": "{{ key_components.network.singbox.vars.dns.primary.server }}",
+                      "server_port": {{ key_components.network.singbox.vars.dns.primary.server_port }},
+                      "path": "{{ key_components.network.singbox.vars.dns.primary.path }}",
+                      "tls": {
+                        "enabled": true,
+                        "server_name": "{{ key_components.network.singbox.vars.dns.primary.server_name }}"
+                      }
+                    },
+                    {
+                      "type": "https",
+                      "tag": "{{ key_components.network.singbox.vars.dns.secondary.tag }}",
+                      "server": "{{ key_components.network.singbox.vars.dns.secondary.server }}",
+                      "server_port": {{ key_components.network.singbox.vars.dns.secondary.server_port }},
+                      "path": "{{ key_components.network.singbox.vars.dns.secondary.path }}",
+                      "tls": {
+                        "enabled": true,
+                        "server_name": "{{ key_components.network.singbox.vars.dns.secondary.server_name }}"
+                      }
+                    }
+                  ],
+                  "final": "{{ key_components.network.singbox.vars.dns.primary.tag }}",
+                  "strategy": "{{ key_components.network.singbox.vars.dns_strategy }}"
+                },
+                "inbounds": [
+                  {
+                    "type": "vless",
+                    "tag": "vless-reality-in",
+                    "listen": "0.0.0.0",
+                    "listen_port": {{ key_components.network.singbox.vars.listen_port }},
+                    "users": {{ key_components.network.singbox.profiles.server.users | to_json }},
+                    "tls": {
+                      "enabled": true,
+                      "server_name": "{{ key_components.network.singbox.vars.reality_server_name }}",
+                      "reality": {
+                        "enabled": true,
+                        "handshake": {
+                          "server": "{{ key_components.network.singbox.vars.reality_server_name }}",
+                          "server_port": 443
+                        },
+                        "private_key": "{{ key_components.network.singbox.profiles.server.reality.private_key }}",
+                        "short_id": {{ key_components.network.singbox.profiles.server.reality.short_ids | to_json }},
+                        "max_time_difference": "1m"
+                      }
+                    }
+                  }
+                ],
+                "outbounds": [
+                  {
+                    "type": "direct",
+                    "tag": "direct"
+                  }
+                ],
+                "route": {
+                  "default_domain_resolver": "local",
+                  "final": "direct"
+                },
+                "experimental": {
+                  "cache_file": {
+                    "enabled": true,
+                    "path": "{{ key_components.network.singbox.vars.cache_file }}"
+                  }
+                }
+              }
+            validate: "/bin/bash -lc 'mkdir -p /var/log/sing-box /var/lib/sing-box && /usr/bin/sing-box check -c \"$1\"' _ %s"
+            notify: ["SINGBOX | apply"]
+            log: false
+          singbox_client_main_client_json:
+            use: "{{ key_components.network.singbox.tier == 'client' }}"
+            id: 2
+            dir:
+              desc: "/etc/sing-box"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply:
+                meta: { when: "always" }
+            file:
+              desc: "client.json"
+              owner: "root"
+              group: "root"
+              mode: "0600"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              {
+                "log": {
+                  "level": "warn",
+                  "timestamp": true,
+                  "output": "{{ key_components.network.singbox.vars.log_file }}"
+                },
+                "dns": {
+                  "servers": [
+                    {
+                      "type": "https",
+                      "tag": "{{ key_components.network.singbox.vars.dns.primary.tag }}",
+                      "server": "{{ key_components.network.singbox.vars.dns.primary.server }}",
+                      "server_port": {{ key_components.network.singbox.vars.dns.primary.server_port }},
+                      "path": "{{ key_components.network.singbox.vars.dns.primary.path }}",
+                      "tls": {
+                        "enabled": true,
+                        "server_name": "{{ key_components.network.singbox.vars.dns.primary.server_name }}"
+                      }
+                    },
+                    {
+                      "type": "https",
+                      "tag": "{{ key_components.network.singbox.vars.dns.secondary.tag }}",
+                      "server": "{{ key_components.network.singbox.vars.dns.secondary.server }}",
+                      "server_port": {{ key_components.network.singbox.vars.dns.secondary.server_port }},
+                      "path": "{{ key_components.network.singbox.vars.dns.secondary.path }}",
+                      "tls": {
+                        "enabled": true,
+                        "server_name": "{{ key_components.network.singbox.vars.dns.secondary.server_name }}"
+                      }
+                    }
+                  ],
+                  "final": "{{ key_components.network.singbox.vars.dns.primary.tag }}",
+                  "strategy": "{{ key_components.network.singbox.vars.dns_strategy }}"
+                },
+                "inbounds": [
+                  {
+                    "type": "socks",
+                    "tag": "socks-direct",
+                    "listen": "127.0.0.1",
+                    "listen_port": 1090
+                  },
+                  {
+                    "type": "socks",
+                    "tag": "socks-proxy",
+                    "listen": "127.0.0.1",
+                    "listen_port": 1091
+                  },
+                  {
+                    "type": "mixed",
+                    "tag": "mixed-proxy",
+                    "listen": "127.0.0.1",
+                    "listen_port": 2080
+                  },
+                  {
+                    "type": "tun",
+                    "tag": "tun-system",
+                    "interface_name": "tun0",
+                    "address": [
+                      "170.170.0.1/30"
+                    ],
+                    "mtu": 1420,
+                    "stack": "system",
+                    "auto_route": true,
+                    "auto_redirect": true,
+                    "strict_route": true,
+                    "route_exclude_address": [
+                      "10.0.0.0/8",
+                      "172.16.0.0/12",
+                      "192.168.0.0/16",
+                      "127.0.0.0/8",
+                      "169.254.0.0/16",
+                      "224.0.0.0/4",
+                      "::1/128",
+                      "fc00::/7",
+                      "fe80::/10"
+                    ]
+                  }
+                ],
+                "outbounds": [
+                  {
+                    "type": "vless",
+                    "tag": "vless-out",
+                    "server": "{{ key_components.network.singbox.profiles.client.endpoint }}",
+                    "server_port": {{ key_components.network.singbox.vars.listen_port }},
+                    "uuid": "{{ key_components.network.singbox.profiles.client.uuid }}",
+                    "flow": "xtls-rprx-vision",
+                    "tls": {
+                      "enabled": true,
+                      "server_name": "{{ key_components.network.singbox.vars.reality_server_name }}",
+                      "utls": {
+                        "enabled": true,
+                        "fingerprint": "chrome"
+                      },
+                      "reality": {
+                        "enabled": true,
+                        "public_key": "{{ key_components.network.singbox.profiles.client.reality.public_key }}",
+                        "short_id": "{{ key_components.network.singbox.profiles.client.reality.short_id }}"
+                      }
+                    }
+                  },
+                  {
+                    "type": "direct",
+                    "tag": "direct-out"
+                  }
+                ],
+                "route": {
+                  "auto_detect_interface": true,
+                  "default_domain_resolver": "{{ key_components.network.singbox.vars.dns.primary.tag }}",
+                  "final": "direct-out",
+                  "rules": [
+                    {
+                      "inbound": ["socks-proxy", "mixed-proxy"],
+                      "action": "route",
+                      "outbound": "vless-out"
+                    },
+                    {
+                      "inbound": ["socks-direct"],
+                      "action": "route",
+                      "outbound": "direct-out"
+                    },
+                    {
+                      "inbound": ["tun-system"],
+                      "action": "route",
+                      "outbound": "vless-out"
+                    }
+                  ]
+                },
+                "experimental": {
+                  "cache_file": {
+                    "enabled": true,
+                    "path": "{{ key_components.network.singbox.vars.cache_file }}"
+                  }
+                }
+              }
+            validate: "/bin/bash -lc 'mkdir -p /var/log/sing-box /var/lib/sing-box && /usr/bin/sing-box check -c \"$1\"' _ %s"
+            notify: ["SINGBOX | apply"]
+            log: true
+          singbox_main_sing_box_service:
+            use: true
+            id: 3
+            dir:
+              desc: "/etc/systemd/system"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply:
+                meta: { when: "always" }
+            file:
+              desc: "sing-box.service"
+              owner: "root"
+              group: "root"
+              mode: "0644"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              [Unit]
+              Description=sing-box service
+              Documentation=https://sing-box.sagernet.org/
+              After=network-online.target
+              Wants=network-online.target
+
+              [Service]
+              Type=simple
+              User=root
+              ExecStart=/usr/bin/sing-box run -c {{ '/etc/sing-box/config.json' if key_components.network.singbox.tier == 'server' else '/etc/sing-box/client.json' }}
+              ExecReload=/bin/kill -HUP $MAINPID
+              Restart=on-failure
+              RestartSec=5
+              NoNewPrivileges=true
+              AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+              CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+              LogsDirectory=sing-box
+              StateDirectory=sing-box
+              LimitNOFILE=1048576
+
+              [Install]
+              WantedBy=multi-user.target
+            validate: "/usr/bin/systemd-analyze verify %s"
+            notify: ["SINGBOX | apply"]
+          singbox_client_main_resume_recover_script:
+            use: "{{ key_components.network.singbox.tier == 'client' }}"
+            id: 4
+            dir:
+              desc: "/usr/lib/systemd/system-sleep"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply:
+                meta: { when: "always" }
+            file:
+              desc: "90_singbox_resume_recover"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              #!/bin/sh
+              set -eu
+
+              ACTION="${1:-}"
+
+              case "${ACTION}" in
+                post)
+                  /bin/systemctl daemon-reload || true
+                  /bin/systemctl restart sing-box.service || true
+                  ;;
+              esac
+            notify: ["SINGBOX | apply"]
+          singbox_iptables_912_singbox_rules_v4_rules: "{{ key_components.firewall.iptables.config.files.singbox_iptables_912_singbox_rules_v4_rules}}"
+          singbox_logrotate_main_singbox: "{{ key_components.observability.logrotate.config.files.singbox_logrotate_main_singbox }}"
+          singbox_fail2ban_main_jail_singbox_local: "{{ key_components.guard.fail2ban.config.files.singbox_fail2ban_main_jail_singbox_local }}"
+          singbox_fail2ban_main_filter_singbox_conf: "{{ key_components.guard.fail2ban.config.files.singbox_fail2ban_main_filter_singbox_conf }}"
+  firewall:
+    stage: 1500
+    iptables:
+      enabled: false
+      uses:
+        packages: ["iptables"]
+      config:
+        files:
+          iptables_base_rules_v4_base:
+            use: true
+            id: 1
+            dir:
+              desc: "/etc/iptables"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply: { meta: { when: "always" } }
+            file:
+              desc: "rules.v4.base"
+              owner: "root"
+              group: "root"
+              mode: "0644"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              *filter
+              :INPUT DROP [0:0]
+              :FORWARD ACCEPT [0:0]
+              :OUTPUT ACCEPT [0:0]
+
+              -A INPUT -i lo -j ACCEPT
+              -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+              -A INPUT -p icmp -j ACCEPT
+            notify: ["IPTABLES | apply"]
+          ssh_iptables_910_ssh_rules_v4_rules:
+            use: "{{ key_components.remote.ssh.enabled | bool }}"
+            id: 2
+            dir:
+              desc: "/etc/iptables/rules.v4.d"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply:
+                meta: { when: "always" }
+            file:
+              desc: "910_ssh_rules_v4.rules"
+              owner: "root"
+              group: "root"
+              mode: "0644"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              -A INPUT -p tcp --dport {{ key_components.remote.ssh.vars.port }} -m conntrack --ctstate NEW -j ACCEPT
+            notify: ["IPTABLES | apply"]
+          wireguard_iptables_911_wireguard_rules_v4_rules:
+            use: "{{ key_components.network.wireguard.enabled | bool }}"
+            id: 3
+            dir:
+              desc: "/etc/iptables/rules.v4.d"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply: { meta: { when: "always" } }
+            file:
+              desc: "911_wireguard_rules_v4.rules"
+              owner: "root"
+              group: "root"
+              mode: "0644"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              -A INPUT -i wg0 -j ACCEPT
+              {% if key_components.network.wireguard.tier == 'server' %}
+              -A INPUT -p udp --dport {{ key_components.network.wireguard.profiles.server.interface.listen_port }} -m conntrack --ctstate NEW -j ACCEPT
+              -A FORWARD -i wg0 -o {{ key_components.network.wireguard.vars.nat.external_iface }} -j ACCEPT
+              -A FORWARD -i {{ key_components.network.wireguard.vars.nat.external_iface }} -o wg0 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+              {% endif %}
+            notify: ["IPTABLES | apply"]
+          singbox_iptables_912_singbox_rules_v4_rules:
+            use: "{{ key_components.network.singbox.enabled | bool }}"
+            id: 11
+            dir:
+              desc: "/etc/iptables/rules.v4.d"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply:
+                meta: { when: "always" }
+            file:
+              desc: "912_singbox_rules_v4.rules"
+              owner: "root"
+              group: "root"
+              mode: "0644"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              {% if key_components.network.singbox.tier == 'server' %}
+              -A INPUT -p tcp --dport {{ key_components.network.singbox.vars.listen_port }} -m conntrack --ctstate NEW -j ACCEPT
+              {% endif %}
+
+              {% if (key_components.network.singbox.tier == 'client') %}
+              -A INPUT -i tun0 -j ACCEPT
+              {% endif %}
+            notify: ["IPTABLES | apply"]
+          envoy_iptables_913_envoy_rules_v4_rules:
+            use: "{{ key_components.platform_edge.envoy.enabled | bool }}"
+            id: 12
+            dir:
+              desc: "/etc/iptables/rules.v4.d"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply:
+                meta: { when: "always" }
+            file:
+              desc: "913_envoy_rules_v4.rules"
+              owner: "root"
+              group: "root"
+              mode: "0644"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              {% if key_components.platform_edge.envoy.vars.tls.enabled | bool %}
+              -A INPUT -p tcp --dport 443 -m conntrack --ctstate NEW -m limit --limit 200/second --limit-burst 400 -j ACCEPT
+              {% endif %}
+              -A INPUT -p tcp --dport 80 -m conntrack --ctstate NEW -m limit --limit 200/second --limit-burst 400 -j ACCEPT
+            notify: ["IPTABLES | apply"]
+          iptables_base_rules_v4_nat_base:
+            use: true
+            id: 10
+            dir:
+              desc: "/etc/iptables"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply: { meta: { when: "always" } }
+            file:
+              desc: "rules.v4.nat.base"
+              owner: "root"
+              group: "root"
+              mode: "0644"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              *nat
+              :PREROUTING ACCEPT [0:0]
+              :INPUT ACCEPT [0:0]
+              :OUTPUT ACCEPT [0:0]
+              :POSTROUTING ACCEPT [0:0]
+            notify: ["IPTABLES | apply"]
+          wireguard_iptables_910_wireguard_rules_v4_nat_rules:
+            use: "{{ (key_components.network.wireguard.enabled | bool) and key_components.network.wireguard.tier == 'server' }}"
+            id: 11
+            dir:
+              desc: "/etc/iptables/rules.v4.nat.d"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply: { meta: { when: "always" } }
+            file:
+              desc: "910_wireguard_rules_v4_nat.rules"
+              owner: "root"
+              group: "root"
+              mode: "0644"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              -A POSTROUTING -s {{ key_components.network.wireguard.vars.nat.source_subnet_v4 }} -o {{ key_components.network.wireguard.vars.nat.external_iface }} -j MASQUERADE
+            notify: ["IPTABLES | apply"]
+
+          iptables_base_rules_v4_mangle_base:
+            use: true
+            id: 20
+            dir:
+              desc: "/etc/iptables"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply: { meta: { when: "always" } }
+            file:
+              desc: "rules.v4.mangle.base"
+              owner: "root"
+              group: "root"
+              mode: "0644"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              *mangle
+              :PREROUTING ACCEPT [0:0]
+              :INPUT ACCEPT [0:0]
+              :FORWARD ACCEPT [0:0]
+              :OUTPUT ACCEPT [0:0]
+              :POSTROUTING ACCEPT [0:0]
+            notify: ["IPTABLES | apply"]
+          wireguard_iptables_910_wireguard_rules_v4_mangle_rules:
+            use: "{{ (key_components.network.wireguard.enabled | bool) and key_components.network.wireguard.tier == 'server' }}"
+            id: 21
+            dir:
+              desc: "/etc/iptables/rules.v4.mangle.d"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply: { meta: { when: "always" } }
+            file:
+              desc: "910_wireguard_rules_v4_mangle.rules"
+              owner: "root"
+              group: "root"
+              mode: "0644"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              -A FORWARD -i wg0 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+            notify: ["IPTABLES | apply"]
+
+          iptables_base_rules_v6_base:
+            use: true
+            id: 30
+            dir:
+              desc: "/etc/iptables"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply: { meta: { when: "always" } }
+            file:
+              desc: "rules.v6.base"
+              owner: "root"
+              group: "root"
+              mode: "0644"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              *filter
+              :INPUT DROP [0:0]
+              :FORWARD ACCEPT [0:0]
+              :OUTPUT ACCEPT [0:0]
+            notify: ["IPTABLES | apply"]
+  guard:
+    stage: 1600
+    fail2ban:
+      enabled: false
+      uses:
+        packages: ["fail2ban"]
+      vars:
+        defaults:
+          maxretry: 5
+          findtime: 600
+          bantime: 86400
+          ignoreip: ["127.0.0.1/8", "192.168.0.0/24", "10.10.0.0/16"]
+          backend: "systemd"
+          allowipv6: false
+        recidive:
+          enabled: false
+          maxretry: 5
+          findtime: 86400
+          bantime: 604800
+        sshd:
+          maxretry: 5
+          bantime: 86400
+      config:
+        files:
+          fail2ban_main_fail2ban_local:
+            use: "{{ key_components.guard.fail2ban.vars.recidive.enabled | bool }}"
+            id: 1
+            dir:
+              desc: "/etc/fail2ban"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply:
+                meta: { when: "always" }
+            file:
+              desc: "fail2ban.local"
+              owner: "root"
+              group: "root"
+              mode: "0644"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              [Definition]
+              dbfile = /var/lib/fail2ban/fail2ban.sqlite3
+              dbpurgeage = 7d
+              logtarget = SYSLOG
+            validate: "/bin/bash -lc 'exit 0' _ %s"
+            notify: ["FAIL2BAN | apply"]
+          fail2ban_main_jail_local:
+            use: true
+            id: 2
+            dir:
+              desc: "/etc/fail2ban"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply:
+                meta: { when: "always" }
+            file:
+              desc: "jail.local"
+              owner: "root"
+              group: "root"
+              mode: "0644"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              [DEFAULT]
+              backend = {{ key_components.guard.fail2ban.vars.defaults.backend }}
+              allowipv6 = {{ 'true' if key_components.guard.fail2ban.vars.defaults.allowipv6 else 'false' }}
+              usedns = warn
+              ignoreself = true
+
+              maxretry = {{ key_components.guard.fail2ban.vars.defaults.maxretry }}
+              findtime = {{ key_components.guard.fail2ban.vars.defaults.findtime }}
+              bantime = {{ key_components.guard.fail2ban.vars.defaults.bantime }}
+
+              ignoreip = {{ key_components.guard.fail2ban.vars.defaults.ignoreip | join(' ') }}
+
+              banaction = iptables-multiport
+              banaction_allports = iptables-allports
+
+              [recidive]
+              enabled = {{ 'true' if key_components.guard.fail2ban.vars.recidive.enabled else 'false' }}
+              action = iptables-allports[name=Recidive]
+              port = all
+              filter = recidive
+              logpath = /var/log/fail2ban.log
+              maxretry = {{ key_components.guard.fail2ban.vars.recidive.maxretry }}
+              findtime = {{ key_components.guard.fail2ban.vars.recidive.findtime }}
+              bantime = {{ key_components.guard.fail2ban.vars.recidive.bantime }}
+            validate: "/bin/bash -lc 'if command -v fail2ban-client >/dev/null 2>&1; then fail2ban-client -t; else exit 0; fi' _ %s"
+            notify: ["FAIL2BAN | apply"]
+          ssh_fail2ban_main_jail_sshd_local:
+            use: "{{ key_components.remote.ssh.enabled | bool }}"
+            id: 3
+            dir:
+              desc: "/etc/fail2ban/jail.d"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply:
+                meta: { when: "always" }
+            file:
+              desc: "sshd.local"
+              owner: "root"
+              group: "root"
+              mode: "0644"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              [sshd]
+              enabled = true
+              action = iptables[name=SSH, port={{ key_components.remote.ssh.vars.port }}, protocol=tcp]
+              port = {{ key_components.remote.ssh.vars.port }}
+              filter = sshd
+              backend = {{ key_components.guard.fail2ban.vars.defaults.backend }}
+              journalmatch = _SYSTEMD_UNIT=ssh.service + _COMM=sshd
+              mode = aggressive
+              maxretry = {{ key_components.guard.fail2ban.vars.sshd.maxretry }}
+              findtime = {{ key_components.guard.fail2ban.vars.defaults.findtime }}
+              bantime = {{ key_components.guard.fail2ban.vars.sshd.bantime }}
+            validate: "/bin/bash -lc 'if command -v fail2ban-client >/dev/null 2>&1; then fail2ban-client -t; else exit 0; fi' _ %s"
+            notify: ["FAIL2BAN | apply"]
+          singbox_fail2ban_main_jail_singbox_local:
+            use: "{{ (key_components.network.singbox.enabled | bool) and (key_components.network.singbox.tier == 'server') }}"
+            id: 13
+            dir:
+              desc: "/etc/fail2ban/jail.d"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply:
+                meta: { when: "always" }
+            file:
+              desc: "sing-box.local"
+              owner: "root"
+              group: "root"
+              mode: "0644"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              [sing-box]
+              enabled = true
+              action = iptables[name=sing-box, port={{ key_components.network.singbox.vars.listen_port }}, protocol=tcp]
+              port = {{ key_components.network.singbox.vars.listen_port }}
+              protocol = tcp
+              filter = sing-box
+              logpath = {{ key_components.network.singbox.vars.log_file }}
+              backend = auto
+              maxretry = 3
+              findtime = 600
+              bantime = 86400
+            validate: "/bin/bash -lc 'if command -v fail2ban-client >/dev/null 2>&1; then fail2ban-client -t; else exit 0; fi' _ %s"
+            notify: ["FAIL2BAN | apply"]
+          singbox_fail2ban_main_filter_singbox_conf:
+            use: "{{ (key_components.network.singbox.enabled | bool) and (key_components.network.singbox.tier == 'server') }}"
+            id: 14
+            dir:
+              desc: "/etc/fail2ban/filter.d"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply:
+                meta: { when: "always" }
+            file:
+              desc: "sing-box.conf"
+              owner: "root"
+              group: "root"
+              mode: "0644"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              [Definition]
+              failregex = ^.*inbound/vless.*from <HOST>:\d+.*(EOF|bad request|tls|reality).*$
+              ignoreregex =
+            notify: ["FAIL2BAN | apply"]
+          envoy_fail2ban_main_jail_envoy_local:
+            use: "{{ key_components.platform_edge.envoy.enabled | bool }}"
+            id: 15
+            dir:
+              desc: "/etc/fail2ban/jail.d"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply:
+                meta: { when: "always" }
+            file:
+              desc: "envoy.local"
+              owner: "root"
+              group: "root"
+              mode: "0644"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              [envoy]
+              enabled = true
+              action = iptables-multiport[name=envoy, port="{{ 'http,https' if key_components.platform_edge.envoy.vars.tls.enabled | bool else 'http' }}", protocol=tcp]
+              port = {{ 'http,https' if key_components.platform_edge.envoy.vars.tls.enabled | bool else 'http' }}
+              filter = envoy
+              backend = auto
+              logpath = /var/log/envoy/*.log
+              maxretry = 10
+              findtime = 600
+              bantime = 86400
+            validate: "/bin/bash -lc 'if command -v fail2ban-client >/dev/null 2>&1; then fail2ban-client -t; else exit 0; fi' _ %s"
+            notify: ["FAIL2BAN | apply"]
+          envoy_fail2ban_main_filter_envoy_conf:
+            use: "{{ key_components.platform_edge.envoy.enabled | bool }}"
+            id: 16
+            dir:
+              desc: "/etc/fail2ban/filter.d"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply:
+                meta: { when: "always" }
+            file:
+              desc: "envoy.conf"
+              owner: "root"
+              group: "root"
+              mode: "0644"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              [Definition]
+              failregex = ^\[[^\]]+\]\s+"(?:GET|POST|HEAD|PUT|DELETE|OPTIONS|PATCH)\s+\S+\s*"\s+(?:401|403)\s+\d+\s+"[^"]*"\s+"<HOST>(?::\d+)?"
+                          ^\[[^\]]+\]\s+"(?:GET|POST|HEAD|PUT|DELETE|OPTIONS|PATCH)\s+/(?:wp-login\.php|xmlrpc\.php|wp-admin|\.env|\.git|phpmyadmin|admin|boaform|HNAP1|config\.php|setup\.php|vendor/|composer\.(?:json|lock))\S*\s*"\s+(?:400|401|403|404)\s+\d+\s+"[^"]*"\s+"<HOST>(?::\d+)?"
+              ignoreregex =
+            notify: ["FAIL2BAN | apply"]
+  scan:
+    stage: 1700
+    clamav:
+      enabled: false
+      uses:
+        packages: ["clamav"]
+      vars:
+        quarantine_dir: "/var/quarantine"
+        log_dir: "/var/log/clamav"
+        scan:
+          enabled: false
+          on_calendar: "*-*-* 01:00:00" # Etc/UTC
+          randomized_delay_sec: 300
+          persistent: true
+        scan_dirs:
+          - "/home"
+          - "/root"
+          - "/var/www"
+          - "/var/tmp"
+          - "/tmp"
+          - "/etc"
+          - "/usr/local"
+          - "/opt"
+          - "/data"
+        freshclam_proxy:
+          enabled: false
+          server: "socks5h://127.0.0.1"
+          port: 1081
+      config:
+        files:
+          clamav_main_clamd_conf:
+            use: true
+            id: 1
+            dir:
+              desc: "/etc/clamav"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply: { meta: { when: "always" } }
+            file:
+              desc: "clamd.conf"
+              owner: "root"
+              group: "root"
+              mode: "0644"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              LocalSocket /run/clamav/clamd.ctl
+              FixStaleSocket true
+              LocalSocketGroup clamav
+              LocalSocketMode 660
+              User clamav
+
+              ScanMail true
+              ScanArchive true
+              ArchiveBlockEncrypted false
+              MaxDirectoryRecursion 15
+              FollowDirectorySymlinks false
+              FollowFileSymlinks false
+
+              ReadTimeout 180
+              MaxThreads 12
+              MaxConnectionQueueLength 15
+
+              LogSyslog false
+              LogRotate false
+              LogFacility LOG_LOCAL6
+              LogClean false
+              LogVerbose false
+
+              DatabaseDirectory /var/lib/clamav
+              OfficialDatabaseOnly false
+              SelfCheck 3600
+
+              Foreground false
+              Debug false
+
+              ScanPE true
+              MaxEmbeddedPE 10M
+              ScanOLE2 true
+              ScanPDF true
+              ScanHTML true
+              MaxHTMLNormalize 10M
+              MaxHTMLNoTags 2M
+              MaxScriptNormalize 5M
+              MaxZipTypeRcg 1M
+              ScanSWF true
+              ExitOnOOM false
+              LeaveTemporaryFiles false
+              AlgorithmicDetection true
+              ScanELF true
+              IdleTimeout 30
+              CrossFilesystems true
+
+              PhishingSignatures true
+              PhishingScanURLs true
+              PhishingAlwaysBlockSSLMismatch false
+              PhishingAlwaysBlockCloak false
+
+              DetectPUA false
+              ScanPartialMessages false
+              HeuristicScanPrecedence false
+              StructuredDataDetection false
+
+              CommandReadTimeout 30
+              SendBufTimeout 200
+              MaxQueue 100
+
+              ExtendedDetectionInfo true
+              OLE2BlockMacros false
+              AllowAllMatchScan true
+              ForceToDisk false
+              DisableCertCheck false
+              DisableCache false
+
+              MaxScanTime 120000
+              MaxScanSize 100M
+              MaxFileSize 25M
+              MaxRecursion 16
+              MaxFiles 10000
+              MaxPartitions 50
+              MaxIconsPE 100
+              PCREMatchLimit 10000
+              PCRERecMatchLimit 5000
+              PCREMaxFileSize 25M
+              ScanXMLDOCS true
+              ScanHWP3 true
+              MaxRecHWP3 16
+              StreamMaxLength 25M
+
+              LogFile {{ key_components.scan.clamav.vars.log_dir }}/clamav.log
+              LogTime true
+              LogFileUnlock false
+              LogFileMaxSize 10M
+
+              Bytecode true
+              BytecodeSecurity TrustSigned
+              BytecodeTimeout 60000
+
+              OnAccessMaxFileSize 5M
+
+              # If a virus is detected, move it to quarantine
+              VirusEvent "mv --backup=numbered --force %F {{ key_components.scan.clamav.vars.quarantine_dir }}/"
+            notify: ["CLAMAV | apply"]
+          clamav_main_freshclam_conf:
+            use: true
+            id: 2
+            dir:
+              desc: "/etc/clamav"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply: { meta: { when: "always" } }
+            file:
+              desc: "freshclam.conf"
+              owner: "root"
+              group: "root"
+              mode: "0644"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              DatabaseOwner clamav
+              UpdateLogFile {{ key_components.scan.clamav.vars.log_dir }}/freshclam.log
+              LogVerbose false
+              LogSyslog false
+              LogFacility LOG_LOCAL6
+              LogFileMaxSize 0
+              LogRotate false
+              LogTime true
+              Foreground false
+              Debug false
+
+              MaxAttempts 5
+              DatabaseDirectory /var/lib/clamav
+              DNSDatabaseInfo current.cvd.clamav.net
+              ConnectTimeout 30
+              ReceiveTimeout 0
+              TestDatabases no
+              ScriptedUpdates yes
+              CompressLocalDatabase no
+
+              Bytecode true
+              NotifyClamd /etc/clamav/clamd.conf
+
+              # Check 2 times a day
+              Checks 2
+
+              DatabaseMirror db.local.clamav.net
+              DatabaseMirror database.clamav.net
+
+              {% if
+                (key_components.scan.clamav.vars.freshclam_proxy.enabled | bool) and
+                (key_components.remote.ssh_client.enabled | bool) and
+                (key_components.remote.ssh_client.vars.socks.enabled | bool)
+              %}
+              HTTPProxyServer {{ key_components.scan.clamav.vars.freshclam_proxy.server }}
+              HTTPProxyPort {{ key_components.scan.clamav.vars.freshclam_proxy.port }}
+              {% endif %}
+            notify: ["CLAMAV | apply"]
+          clamav_main_clamav_scan_sh:
+            use: "{{ key_components.scan.clamav.vars.scan.enabled | bool }}"
+            id: 3
+            dir:
+              desc: "/usr/local/bin"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply: { meta: { when: "always" } }
+            file:
+              desc: "clamav_scan.sh"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              #!/bin/bash
+              set -euo pipefail
+
+              SCAN_DIRS="{{ key_components.scan.clamav.vars.scan_dirs | join(' ') }}"
+              LOG_DIR="{{ key_components.scan.clamav.vars.log_dir }}"
+              QUARANTINE_DIR="{{ key_components.scan.clamav.vars.quarantine_dir }}"
+
+              DATE_TIME="$(date -u +'%Y')"
+              LOG_FILE="${LOG_DIR}/scan_${DATE_TIME}.log"
+
+              mkdir -p -m 750 "${LOG_DIR}"
+              chown clamav:clamav "${LOG_DIR}" || true
+
+              mkdir -p -m 750 "${QUARANTINE_DIR}"
+              chown clamav:clamav "${QUARANTINE_DIR}" || true
+
+              echo "Start event $(date -u +'%Y-%m-%d %T')" >> "${LOG_FILE}"
+              echo "Full system scan" >> "${LOG_FILE}"
+
+              for DIR in ${SCAN_DIRS}; do
+                if [ -d "${DIR}" ]; then
+                  echo "[$(date -u +'%Y-%m-%d %T')] Scanning: ${DIR}" >> "${LOG_FILE}"
+                  /usr/bin/clamscan -ri --move="${QUARANTINE_DIR}" "${DIR}" >> "${LOG_FILE}" || true
+                else
+                  echo "[$(date -u +'%Y-%m-%d %T')] Missing dir: ${DIR}" >> "${LOG_FILE}"
+                fi
+              done
+
+              echo "End event $(date -u +'%Y-%m-%d %T')" >> "${LOG_FILE}"
+              echo "" >> "${LOG_FILE}"
+            validate: "/bin/bash -n %s"
+            notify: ["CLAMAV | apply"]
+          clamav_main_clamav_scan_service:
+            use: "{{ key_components.scan.clamav.vars.scan.enabled | bool }}"
+            id: 4
+            dir:
+              desc: "/etc/systemd/system"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply: { meta: { when: "always" } }
+            file:
+              desc: "clamav-scan.service"
+              owner: "root"
+              group: "root"
+              mode: "0644"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              [Unit]
+              Description=ClamAV scan
+              After=network-online.target
+              Wants=network-online.target
+
+              [Service]
+              Type=oneshot
+              ExecStart=/usr/local/bin/clamav_scan.sh
+              Nice=10
+              IOSchedulingClass=idle
+              NoNewPrivileges=true
+            notify: ["CLAMAV | apply"]
+          clamav_main_clamav_scan_timer:
+            use: "{{ key_components.scan.clamav.vars.scan.enabled | bool }}"
+            id: 5
+            dir:
+              desc: "/etc/systemd/system"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply: { meta: { when: "always" } }
+            file:
+              desc: "clamav_scan.timer"
+              owner: "root"
+              group: "root"
+              mode: "0644"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              [Unit]
+              Description=ClamAV scan timer
+
+              [Timer]
+              OnCalendar={{ key_components.scan.clamav.vars.scan.on_calendar }}
+              Persistent={{ 'true' if key_components.scan.clamav.vars.scan.persistent else 'false' }}
+              RandomizedDelaySec={{ key_components.scan.clamav.vars.scan.randomized_delay_sec }}
+
+              [Install]
+              WantedBy=timers.target
+            notify: ["CLAMAV | apply"]
+          clamav_freshclam_910_freshclam_ssh_socks_conf:
+            use: >-
+              {{
+                (key_components.scan.clamav.vars.freshclam_proxy.enabled |  bool) and
+                (key_components.remote.ssh_client.enabled | bool) and
+                (key_components.remote.ssh_client.vars.socks.enabled | bool)
+              }}
+            id: 6
+            dir:
+              desc: "/etc/systemd/system/clamav-freshclam.service.d"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply: { meta: { when: "always" } }
+            file:
+              desc: "910_freshclam_ssh_socks.conf"
+              owner: "root"
+              group: "root"
+              mode: "0644"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              [Unit]
+              After=ssh_rpf.service
+              Wants=ssh_rpf.service
+            notify: ["CLAMAV | apply"]
+          clamav_logrotate_main_clamav: "{{ key_components.observability.logrotate.config.files.clamav_logrotate_main_clamav }}"
+  runtime:
+    stage: 2000
+    #dotnet9:
+    #nodejs:
+    #python_tools:
+  scm:
+    stage: 2100
+    git_client:
+      enabled: false
+      uses:
+        packages: ["git", "openssh_client"]
+      vars:
+        user: "{{ key_system.users.admin.login }}"
+        profiles:
+          default: { user_name: "Admin", user_email: "vault.yml" }
+          github: { user_name: "Admin", user_email: "263895559+world-odv@users.noreply.github.com" }
+        ssh_hosts:
+          - host: "github.com"
+            hostname: "github.com"
+            user: "git"
+            private_key_file: "~/.ssh/github"
+        repos:
+          - name: "ansible-stage"
+            path: "/data/Solution/Ansible"
+            init: true
+            remotes:
+              origin: "git@github.com:world-odv/ansible-stage.git"
+      config:
+        files:
+          git_client_main_gitconfig:
+            use: true
+            id: 1
+            dir:
+              desc: "/home/{{ key_components.scm.git_client.vars.user }}"
+              owner: "{{ key_components.scm.git_client.vars.user }}"
+              group: "{{ key_components.scm.git_client.vars.user }}"
+              mode: "0755"
+              apply: { meta: { when: "always" } }
+            file:
+              desc: ".gitconfig"
+              owner: "{{ key_components.scm.git_client.vars.user }}"
+              group: "{{ key_components.scm.git_client.vars.user }}"
+              mode: "0644"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              [core]
+                editor = vim
+                autocrlf = input
+                excludesFile = /home/{{ key_components.scm.git_client.vars.user }}/.config/git/ignore
+
+              [init]
+                defaultBranch = main
+
+              [user]
+                name = {{ key_components.scm.git_client.vars.profiles.default.user_name }}
+                email = {{ key_components.scm.git_client.vars.profiles.default.user_email }}
+
+              [includeIf "gitdir:/data/Solution/Ansible/"]
+                path = /home/{{ key_components.scm.git_client.vars.user }}/.config/git/profiles/github.gitconfig
+          git_client_main_global_ignore:
+            use: true
+            id: 2
+            dir:
+              desc: "/home/{{ key_components.scm.git_client.vars.user }}/.config/git"
+              owner: "{{ key_components.scm.git_client.vars.user }}"
+              group: "{{ key_components.scm.git_client.vars.user }}"
+              mode: "0755"
+              apply: { meta: { when: "always" } }
+            file:
+              desc: "ignore"
+              owner: "{{ key_components.scm.git_client.vars.user }}"
+              group: "{{ key_components.scm.git_client.vars.user }}"
+              mode: "0644"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              *.retry
+              *.log
+              *.bak
+              *.backup
+              .cache/
+              .vscode/
+              .idea/
+              tmp/
+              vault/
+              **/*.key
+              **/*.pem
+          git_client_profiles_github_gitconfig:
+            use: true
+            id: 3
+            dir:
+              desc: "/home/{{ key_components.scm.git_client.vars.user }}/.config/git/profiles"
+              owner: "{{ key_components.scm.git_client.vars.user }}"
+              group: "{{ key_components.scm.git_client.vars.user }}"
+              mode: "0755"
+              apply: { meta: { when: "always" } }
+            file:
+              desc: "github.gitconfig"
+              owner: "{{ key_components.scm.git_client.vars.user }}"
+              group: "{{ key_components.scm.git_client.vars.user }}"
+              mode: "0644"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              [user]
+                name = {{ key_components.scm.git_client.vars.profiles.github.user_name }}
+                email = {{ key_components.scm.git_client.vars.profiles.github.user_email }}
+  virtualization:
+    stage: 2200
+    kvm:
+      enabled: false
+  containers:
+    stage: 2300
+    docker:
+      enabled: false
+  orchestration:
+    stage: 2400
+    k8n:
+      enabled: false
+  platform_edge:
+    stage: 3000
+    certbot:
+      enabled: false
+      uses:
+        packages: ["certbot", "python3_pip", "acl"]
+      vars:
+        # cert_name определяет lineage в /etc/letsencrypt/live/<cert_name>/...
+        # Его значение должно соответствовать путям сертификата в key_components.platform_edge.envoy.vars.tls
+        cert_name: "asterno.com"
+        email: "security@asterno.com"
+        acme_server: "https://acme-v02.api.letsencrypt.org/directory"
+        dns_propagation_seconds: 180
+        domains: ["asterno.com", "*.asterno.com"]
+        beget:
+          username: "vault.yml"
+          password: "vault.yml"
+        paths:
+          credentials: "/etc/letsencrypt/dns_beget.ini"
+          deploy_hook: "/etc/letsencrypt/renewal-hooks/deploy/reload_envoy.sh"
+        timer:
+          on_calendar: "*-*-* 03,15:00:00"
+          randomized_delay_sec: 300
+          persistent: true
+        log_dir: "/var/log/letsencrypt"
+      config:
+        files:
+          certbot_main_dns_beget_ini:
+            use: true
+            id: 1
+            dir:
+              desc: "/etc/letsencrypt"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply:
+                meta: { when: "always" }
+            file:
+              desc: "dns_beget.ini"
+              owner: "root"
+              group: "root"
+              mode: "0600"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              dns_beget_api_username = {{ key_components.platform_edge.certbot.vars.beget.username }}
+              dns_beget_api_password = {{ key_components.platform_edge.certbot.vars.beget.password }}
+            notify: ["CERTBOT | apply"]
+            log: false
+          certbot_main_certbot_sh:
+            use: true
+            id: 2
+            dir:
+              desc: "/usr/local/bin"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply:
+                meta: { when: "always" }
+            file:
+              desc: "certbot.sh"
+              owner: "root"
+              group: "root"
+              mode: "0750"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              #!/usr/bin/env bash
+              set -euo pipefail
+              # Скрипт выполняет полный цикл:
+              # 1. Проверяет наличие credentials
+              # 2. Устанавливает DNS-плагин (если его нет)
+              # 3. Выпускает сертификат при первом запуске
+              # 4. Гарантирует deploy_hook в renewal-конфиге
+              # 5. Запускает certbot renew
+
+              PATH="/usr/sbin:/usr/bin:/sbin:/bin"
+
+              CERT_NAME="{{ key_components.platform_edge.certbot.vars.cert_name }}"
+              CERT_EMAIL="{{ key_components.platform_edge.certbot.vars.email }}"
+              ACME_SERVER="{{ key_components.platform_edge.certbot.vars.acme_server }}"
+              PROPAGATION_SECONDS="{{ key_components.platform_edge.certbot.vars.dns_propagation_seconds }}"
+              CREDENTIALS_FILE="{{ key_components.platform_edge.certbot.vars.paths.credentials }}"
+              DEPLOY_HOOK="{{ key_components.platform_edge.certbot.vars.paths.deploy_hook }}"
+              LOG_DIR="{{ key_components.platform_edge.certbot.vars.log_dir }}"
+              LOG_FILE="${LOG_DIR}/$(date -u +'%Y').log"
+              RENEWAL_CONF="/etc/letsencrypt/renewal/${CERT_NAME}.conf"
+
+              CERTBOT_DOMAIN_ARGS=(
+              {% for certbot_domain in key_components.platform_edge.certbot.vars.domains %}
+                "-d" "{{ certbot_domain }}"
+              {% endfor %}
+              )
+
+              mkdir -p "${LOG_DIR}"
+              chown root:adm "${LOG_DIR}" || true
+              chmod 0755 "${LOG_DIR}" || true
+
+              {
+                echo "Start event $(date -u +'%Y-%m-%d %T')"
+                echo "platform-edge-certbot: cycle start cert=${CERT_NAME}"
+
+                if [ ! -f "${CREDENTIALS_FILE}" ]; then
+                  echo "platform-edge-certbot: missing credentials file ${CREDENTIALS_FILE}"
+                  echo "End event $(date -u +'%Y-%m-%d %T')"
+                  echo
+                  exit 1
+                fi
+
+                chmod 0600 "${CREDENTIALS_FILE}" || true
+
+                if ! /usr/bin/python3 -m pip show certbot-dns-beget-api >/dev/null 2>&1; then
+                  /usr/bin/pip3 install --upgrade certbot-dns-beget-api
+                fi
+
+                if [ ! -f "${RENEWAL_CONF}" ]; then
+                  /usr/bin/certbot certonly \
+                    --non-interactive \
+                    --agree-tos \
+                    --no-eff-email \
+                    --authenticator dns-beget-api \
+                    --dns-beget-api-credentials "${CREDENTIALS_FILE}" \
+                    --dns-beget-api-propagation-seconds "${PROPAGATION_SECONDS}" \
+                    --server "${ACME_SERVER}" \
+                    --cert-name "${CERT_NAME}" \
+                    -m "${CERT_EMAIL}" \
+                    "${CERTBOT_DOMAIN_ARGS[@]}" \
+                    --deploy-hook "${DEPLOY_HOOK}"
+                fi
+
+                if [ -f "${RENEWAL_CONF}" ]; then
+                  /usr/bin/sed -i '/^deploy_hook = /d' "${RENEWAL_CONF}"
+                  /usr/bin/printf 'deploy_hook = %s\n' "${DEPLOY_HOOK}" >> "${RENEWAL_CONF}"
+                fi
+
+                /usr/bin/certbot renew --non-interactive
+
+                echo "platform-edge-certbot: cycle complete cert=${CERT_NAME}"
+                echo "End event $(date -u +'%Y-%m-%d %T')"
+                echo
+              } >> "${LOG_FILE}" 2>&1
+            validate: "/bin/bash -n %s"
+            notify: ["CERTBOT | apply"]
+          certbot_main_reload_envoy_sh:
+            use: true
+            id: 3
+            dir:
+              desc: "/etc/letsencrypt/renewal-hooks/deploy"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply:
+                meta: { when: "always" }
+            file:
+              desc: "reload_envoy.sh"
+              owner: "root"
+              group: "root"
+              mode: "0700"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              #!/usr/bin/env bash
+              set -euo pipefail
+              # Deploy-hook применяется только после успешного продления:
+              # 1. Выставляет ACL для чтения сертификатов пользователем envoy
+              # 2. Валидирует конфиг envoy
+              # 3. Безопасно перезапускает/запускает envoy
+
+              PATH="/usr/sbin:/usr/bin:/sbin:/bin"
+
+              CERT_NAME="{{ key_components.platform_edge.certbot.vars.cert_name }}"
+              LOG_DIR="{{ key_components.platform_edge.certbot.vars.log_dir }}"
+              LOG_FILE="${LOG_DIR}/$(date -u +'%Y').log"
+              TAG="certbot-hook"
+              LINEAGE="${RENEWED_LINEAGE:-unknown}"
+              DOMAINS="${RENEWED_DOMAINS:-unknown}"
+
+              mkdir -p "${LOG_DIR}"
+              chown root:adm "${LOG_DIR}" || true
+              chmod 0755 "${LOG_DIR}" || true
+
+              {
+                echo "Start event $(date -u +'%Y-%m-%d %T')"
+                echo "${TAG}: deploy-hook start lineage=${LINEAGE} domains=${DOMAINS}"
+
+                /usr/bin/setfacl -m u:envoy:x /etc/letsencrypt || true
+                /usr/bin/setfacl -m u:envoy:x /etc/letsencrypt/live || true
+                /usr/bin/setfacl -m u:envoy:x /etc/letsencrypt/archive || true
+                /usr/bin/setfacl -m u:envoy:rx "/etc/letsencrypt/live/${CERT_NAME}" || true
+                /usr/bin/setfacl -m u:envoy:rx "/etc/letsencrypt/archive/${CERT_NAME}" || true
+                /usr/bin/setfacl -m m::rx /etc/letsencrypt || true
+                /usr/bin/setfacl -m m::rx /etc/letsencrypt/live || true
+                /usr/bin/setfacl -m m::rx /etc/letsencrypt/archive || true
+                /usr/bin/setfacl -m m::rx "/etc/letsencrypt/live/${CERT_NAME}" || true
+                /usr/bin/setfacl -m m::rx "/etc/letsencrypt/archive/${CERT_NAME}" || true
+
+                shopt -s nullglob
+                for cert_file in /etc/letsencrypt/archive/"${CERT_NAME}"/privkey*.pem /etc/letsencrypt/archive/"${CERT_NAME}"/fullchain*.pem; do
+                  /usr/bin/setfacl -m u:envoy:r "${cert_file}" || true
+                  /usr/bin/setfacl -m m::r "${cert_file}" || true
+                done
+                shopt -u nullglob
+
+                /usr/bin/setfacl -d -m u:envoy:r "/etc/letsencrypt/archive/${CERT_NAME}" || true
+                /usr/bin/setfacl -d -m m::r "/etc/letsencrypt/archive/${CERT_NAME}" || true
+
+                if ! /usr/bin/envoy --mode validate -c /etc/envoy/envoy.yaml >/dev/null 2>&1; then
+                  echo "${TAG}: envoy validate failed, skip restart"
+                  echo "End event $(date -u +'%Y-%m-%d %T')"
+                  echo
+                  exit 0
+                fi
+
+                if /bin/systemctl is-active --quiet envoy.service; then
+                  /bin/systemctl try-reload-or-restart envoy.service || /bin/systemctl restart envoy.service
+                  echo "${TAG}: envoy restarted"
+                elif /bin/systemctl list-unit-files --type=service | /bin/grep -q '^envoy\.service\b'; then
+                  /bin/systemctl start envoy.service
+                  echo "${TAG}: envoy started"
+                else
+                  echo "${TAG}: envoy.service not installed, skip"
+                fi
+
+                echo "End event $(date -u +'%Y-%m-%d %T')"
+                echo
+              } >> "${LOG_FILE}" 2>&1
+            validate: "/bin/bash -n %s"
+            notify: ["CERTBOT | apply"]
+          certbot_main_certbot_service:
+            use: true
+            id: 4
+            dir:
+              desc: "/etc/systemd/system"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply:
+                meta: { when: "always" }
+            file:
+              desc: "certbot.service"
+              owner: "root"
+              group: "root"
+              mode: "0644"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              [Unit]
+              Description=Certbot Issue/Renew
+              Wants=network-online.target
+              After=network-online.target
+
+              [Service]
+              Type=oneshot
+              ExecStart=/usr/local/bin/certbot.sh
+              User=root
+              Group=root
+              NoNewPrivileges=true
+              Nice=10
+              IOSchedulingClass=idle
+            validate: "/usr/bin/systemd-analyze verify %s"
+            notify: ["CERTBOT | apply"]
+          certbot_main_certbot_timer:
+            use: true
+            id: 5
+            dir:
+              desc: "/etc/systemd/system"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply:
+                meta: { when: "always" }
+            file:
+              desc: "certbot.timer"
+              owner: "root"
+              group: "root"
+              mode: "0644"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              [Unit]
+              Description=Certbot Timer
+
+              [Timer]
+              OnCalendar={{ key_components.platform_edge.certbot.vars.timer.on_calendar }}
+              Persistent={{ 'true' if key_components.platform_edge.certbot.vars.timer.persistent else 'false' }}
+              RandomizedDelaySec={{ key_components.platform_edge.certbot.vars.timer.randomized_delay_sec }}
+              Unit=certbot.service
+
+              [Install]
+              WantedBy=timers.target
+            validate: "/usr/bin/systemd-analyze verify %s"
+            notify: ["CERTBOT | apply"]
+    envoy:
+      enabled: false
+      uses:
+        packages: ["envoy", "iptables", "fail2ban"]
+      vars:
+        bind_address: "0.0.0.0"
+        admin_bind_address: "127.0.0.1"
+        admin_port: 9901
+        cluster_name: "cloud-relay"
+        concurrency: 2
+        tls:
+          enabled: true
+          cert_chain: "/etc/letsencrypt/live/asterno.com/fullchain.pem"
+          private_key: "/etc/letsencrypt/live/asterno.com/privkey.pem"
+        upstreams:
+          nextcloud:
+            address: "10.10.2.51"
+            port: 8080
+            connect_timeout: "2s"
+            idle_timeout: "600s"
+        logs:
+          main: "/var/log/envoy/access.log"
+          asterno: "/var/log/envoy/asterno.com_access.log"
+          cloud: "/var/log/envoy/cloud.asterno.com_access.log"
+      config:
+        files:
+          envoy_main_access_log:
+            use: true
+            id: 1
+            dir:
+              desc: "/var/log/envoy"
+              owner: "envoy"
+              group: "envoy"
+              mode: "0750"
+              apply:
+                meta: { when: "always" }
+            file:
+              desc: "access.log"
+              owner: "envoy"
+              group: "envoy"
+              mode: "0640"
+              apply:
+                content: { when: "missing", mode: "replace" }
+                meta: { when: "always" }
+            content: ""
+          envoy_asterno_access_log:
+            use: true
+            id: 2
+            dir:
+              desc: "/var/log/envoy"
+              owner: "envoy"
+              group: "envoy"
+              mode: "0750"
+              apply:
+                meta: { when: "always" }
+            file:
+              desc: "asterno.com_access.log"
+              owner: "envoy"
+              group: "envoy"
+              mode: "0640"
+              apply:
+                content: { when: "missing", mode: "replace" }
+                meta: { when: "always" }
+            content: ""
+          envoy_cloud_access_log:
+            use: true
+            id: 3
+            dir:
+              desc: "/var/log/envoy"
+              owner: "envoy"
+              group: "envoy"
+              mode: "0750"
+              apply:
+                meta: { when: "always" }
+            file:
+              desc: "cloud.asterno.com_access.log"
+              owner: "envoy"
+              group: "envoy"
+              mode: "0640"
+              apply:
+                content: { when: "missing", mode: "replace" }
+                meta: { when: "always" }
+            content: ""
+          envoy_main_envoy_yaml:
+            use: true
+            id: 4
+            dir:
+              desc: "/etc/envoy"
+              owner: "root"
+              group: "envoy"
+              mode: "0750"
+              apply:
+                meta: { when: "always" }
+            file:
+              desc: "envoy.yaml"
+              owner: "root"
+              group: "envoy"
+              mode: "0640"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              # =======================
+              # ENV: STATIC RESOURCES
+              # =======================
+              static_resources:
+
+                # ===========================================================
+                # LISTENER: 80 — HTTP → всегда редирект на HTTPS (443)
+                # Цель: на 80-м порту не отдаём контент, только 301 → https
+                # ==========================================================
+                listeners:
+                  - name: http_80
+                    address:
+                      socket_address:
+                        address: {{ key_components.platform_edge.envoy.vars.bind_address }} # Cлушаем на всех интерфейсах
+                        port_value: 80
+
+                    # ---------------------
+                    # Фильтрующая цепочка
+                    # ---------------------
+                    filter_chains:
+                      - filters:
+                          - name: envoy.filters.network.http_connection_manager
+                            typed_config:
+                              "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+
+                              # Короткое имя для метрик/статистики
+                              stat_prefix: edge_http
+
+                              # Логика определения клиентского IP:
+                              # true — доверяем REMOTE_ADDR (и, если есть, X-Forwarded-For)
+                              use_remote_address: true
+
+                              # Включаем поддержку HTTP/2 на даунстриме (клиент→Envoy)
+                              http2_protocol_options: {}
+
+                              normalize_path: true                              # Нормализуем путь (/a/../b -> /b)
+                              merge_slashes: true                               # // -> /
+                              path_with_escaped_slashes_action: REJECT_REQUEST  # Блокируем %2F в путях (RFD/обходы)
+                              max_request_headers_kb: 32                        # Лимит на размер всех заголовков (дефолт больше)
+
+                              # Общая «гигиена» протокола
+                              common_http_protocol_options:
+                                headers_with_underscores_action: REJECT_REQUEST   # Запрещаем заголовки с подчёркиваниями
+
+                              # Настройка «внутренних» адресов (например, для X-Envoy-Internal)
+                              internal_address_config:
+                                cidr_ranges:
+                                  - address_prefix: 127.0.0.0  # localhost
+                                    prefix_len: 8
+                                  - address_prefix: 10.10.2.0  # Внутренняя сеть (wg0/vlan и т.д.)
+                                    prefix_len: 24
+                                unix_sockets: true
+
+                              # Таймауты на приемлемом уровне (аналог keepalive/timeouts в nginx)
+                              request_headers_timeout: 15s         # Макс. время на приём заголовков запроса
+                              stream_idle_timeout: 15s             # Бездействие stream — рвём соединение
+
+                              # XFF/REMOTE_ADDR — работаем как edge (корневой) прокси
+                              xff_num_trusted_hops: 0                     # Никому «за нами» не доверяем (поменяем, если появится внешний LB)
+                              server_header_transformation: PASS_THROUGH  # Не навязываем 'server: envoy'
+                              # skip_xff_append: true                     # Предыдущий вариант для работы за внешним reverse proxy.
+                              # use_remote_address: false                 # Предыдущий вариант для сохранения XFF-цепочки от внешнего proxy.
+
+                              # ----------------------------------------------
+                              # РОУТИНГ ДЛЯ 80
+                              # TLS включен: только редирект на HTTPS
+                              # TLS выключен: временная рабочая схема без TLS
+                              # ----------------------------------------------
+                              route_config:
+                                name: edge_http_routes
+                                virtual_hosts:
+
+                                  # ===================
+                                  # SITE: ASTERNO.COM
+                                  # ===================
+                                  {% if key_components.platform_edge.envoy.vars.tls.enabled | bool %}
+
+                                  - name: asterno.com_http
+                                    domains: ["asterno.com", "www.asterno.com"]
+                                    routes:
+                                      - match:
+                                          prefix: "/"
+                                        redirect:
+                                          https_redirect: true
+                                  {% else %}
+
+                                  - name: asterno.com_http
+                                    domains: ["asterno.com", "www.asterno.com"]
+                                    routes:
+                                      - match:
+                                          prefix: "/"
+                                        direct_response:
+                                          status: 200
+                                          body:
+                                            inline_string: "I LOVE YOU"
+                                  {% endif %}
+
+                                    # Удаляем не нужные заголовки в ответе
+                                    response_headers_to_remove:
+                                      - "server"                        # Скрыть тип прокси/сервера (убрать 'server: envoy'); меньше данных для fingerprinting
+                                      - "x-powered-by"                  # Убрать технологический след (Node.js/Express, PHP и т.д.)
+                                      - "x-aspnet-version"              # Убрать точную версию ASP.NET — снижает риск целевых эксплойтов по версии
+                                      - "x-runtime"                     # (Rails) убрать время исполнения и сам факт использования Rails
+                                      - "x-envoy-upstream-service-time" # Убрать внутреннюю метрику latency от Envoy до апстрима (полезно скрыть в проде)
+
+                                  # =========================
+                                  # SITE: CLOUD.ASTERNO.COM
+                                  # =========================
+                                  {% if key_components.platform_edge.envoy.vars.tls.enabled | bool %}
+
+                                  - name: cloud.asterno.com_http
+                                    domains: ["cloud.asterno.com"]
+                                    routes:
+                                      - match: 
+                                          prefix: "/"
+                                        redirect:
+                                          https_redirect: true
+                                  {% else %}
+
+                                  - name: cloud.asterno.com_http
+                                    domains: ["cloud.asterno.com"]
+                                    routes:
+                                      - match: 
+                                          prefix: "/"
+                                        route:
+                                          cluster: cloud.asterno.com_s51_nextcloud
+                                          timeout: 0s
+                                          idle_timeout: 3600s
+                                  {% endif %}
+
+                              # -------------------------
+                              # ЛОГИ ПО ДОМЕНАМ + ОБЩИЙ
+                              # -------------------------
+                              access_log:
+                                # ASTERNO.COM — отдельный лог событий на порт 80
+                                - name: envoy.access_loggers.file
+                                  filter:
+                                    header_filter:
+                                      header:
+                                        name: ":authority"
+                                        string_match: { exact: "asterno.com" }
+                                  typed_config:
+                                    "@type": type.googleapis.com/envoy.extensions.access_loggers.file.v3.FileAccessLog
+                                    path: {{ key_components.platform_edge.envoy.vars.logs.asterno }}
+                                    log_format:
+                                      text_format_source:
+                                        inline_string: '[%START_TIME%] "%REQ(:METHOD)% %REQ(X-ENVOY-ORIGINAL-PATH?:PATH)%" %RESPONSE_CODE% %BYTES_SENT% "%REQ(:AUTHORITY)%" "%DOWNSTREAM_REMOTE_ADDRESS%"'
+
+                                # CLOUD.ASTERNO.COM — отдельный лог событий на порт 80
+                                - name: envoy.access_loggers.file
+                                  filter:
+                                    header_filter:
+                                      header:
+                                        name: ":authority"
+                                        string_match: { exact: "cloud.asterno.com" }
+                                  typed_config:
+                                    "@type": type.googleapis.com/envoy.extensions.access_loggers.file.v3.FileAccessLog
+                                    path: {{ key_components.platform_edge.envoy.vars.logs.cloud }}
+                                    log_format:
+                                      text_format_source:
+                                        inline_string: '[%START_TIME%] "%REQ(:METHOD)% %REQ(X-ENVOY-ORIGINAL-PATH?:PATH)%" %RESPONSE_CODE% %BYTES_SENT% "%REQ(:AUTHORITY)%" "%DOWNSTREAM_REMOTE_ADDRESS%"'
+
+                                # Общий лог (всё остальное)
+                                - name: envoy.access_loggers.file
+                                  typed_config:
+                                    "@type": type.googleapis.com/envoy.extensions.access_loggers.file.v3.FileAccessLog
+                                    path: {{ key_components.platform_edge.envoy.vars.logs.main }}
+                                    log_format:
+                                      text_format_source:
+                                        inline_string: '[%START_TIME%] "%REQ(:METHOD)% %REQ(X-ENVOY-ORIGINAL-PATH?:PATH)%" %RESPONSE_CODE% %BYTES_SENT% "%REQ(:AUTHORITY)%" "%DOWNSTREAM_REMOTE_ADDRESS%"'
+
+                              # Последний в цепочке — маршрутизатор HTTP
+                              http_filters:
+                                - name: envoy.filters.http.router
+                                  typed_config:
+                                    "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+
+                {% if key_components.platform_edge.envoy.vars.tls.enabled | bool %}
+                  # =====================================================
+                  # LISTENER: 443 — HTTPS (TLS + отдача страниц)
+                  # Цель: шифрованный вход с сертификатом Let’s Encrypt
+                  # =====================================================
+                  - name: https_443
+                    address:
+                      socket_address:
+                        address: {{ key_components.platform_edge.envoy.vars.bind_address }}
+                        port_value: 443
+
+                    # На уровне listener включаем TLS инспектор (определяет SNI/ALPN)
+                    listener_filters:
+                      - name: envoy.filters.listener.tls_inspector
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.filters.listener.tls_inspector.v3.TlsInspector
+
+                    # ---------------------
+                    # Фильтрующая цепочка
+                    # ---------------------
+                    filter_chains:
+
+                      # Единственный chain (можно добавлять SNI-мэтчеры, если появится другой сертификат)
+                      - transport_socket:
+                          # Вниз — TLS-контекст для даунстрима (клиент→Envoy)
+                          name: envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+                          typed_config:
+                            "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+                            common_tls_context:
+                              tls_certificates:
+                                - certificate_chain: { filename: "{{ key_components.platform_edge.envoy.vars.tls.cert_chain }}" }
+                                  private_key:      { filename: "{{ key_components.platform_edge.envoy.vars.tls.private_key }}" }
+
+                              tls_params:
+                                tls_minimum_protocol_version: TLSv1_2
+                                cipher_suites:
+                                  - ECDHE-ECDSA-AES128-GCM-SHA256
+                                  - ECDHE-RSA-AES128-GCM-SHA256
+                                  - ECDHE-ECDSA-AES256-GCM-SHA384
+                                  - ECDHE-RSA-AES256-GCM-SHA384
+                                  - ECDHE-ECDSA-CHACHA20-POLY1305
+                                  - ECDHE-RSA-CHACHA20-POLY1305
+                                ecdh_curves: ["X25519", "P-256"]
+
+                            # mTLS от клиента нам не требуется
+                            require_client_certificate: false
+
+                        filters:
+                          - name: envoy.filters.network.http_connection_manager
+                            typed_config:
+                              "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+
+                              # Короткое имя для метрик/статистики
+                              stat_prefix: edge_https
+
+                              # Доверяем REMOTE_ADDR / XFF
+                              use_remote_address: true
+
+                              # HTTP/2 на даунстриме
+                              http2_protocol_options: {}
+
+                              normalize_path: true
+                              merge_slashes: true
+                              path_with_escaped_slashes_action: REJECT_REQUEST
+                              max_request_headers_kb: 32
+
+                              # Общая гигиена
+                              common_http_protocol_options:
+                                headers_with_underscores_action: REJECT_REQUEST
+
+                              # Внутренние адреса (для меток/логики)
+                              internal_address_config:
+                                cidr_ranges:
+                                  - address_prefix: 127.0.0.0
+                                    prefix_len: 8
+                                  - address_prefix: 10.10.2.0
+                                    prefix_len: 24
+                                  # - address_prefix: 10.11.0.0
+                                  #   prefix_len: 8
+                                unix_sockets: true
+
+                              # Таймауты на приемлемом уровне (аналог keepalive/timeouts в nginx)
+                              request_headers_timeout: 15s
+                              stream_idle_timeout: 360s
+
+                              # XFF/REMOTE_ADDR — работаем как edge (корневой) прокси
+                              xff_num_trusted_hops: 0
+                              server_header_transformation: PASS_THROUGH
+                              # skip_xff_append: true
+                              # use_remote_address: false
+
+                              # -------------
+                              # COMPRESSION
+                              # -------------
+                              http_filters:
+                                - name: envoy.filters.http.compressor
+                                  typed_config:
+                                    "@type": type.googleapis.com/envoy.extensions.filters.http.compressor.v3.Compressor
+                                    # Библиотека сжатия — Gzip
+                                    compressor_library:
+                                      name: gzip
+                                      typed_config:
+                                        "@type": type.googleapis.com/envoy.extensions.compression.gzip.compressor.v3.Gzip
+                                        # Параметры умеренные/безопасные (аналог gzip comp_level ~5)
+                                        memory_level: 5
+                                        window_bits: 12
+
+                                    # Включено по умолчанию; можно управлять через runtime-ключ
+                                    response_direction_config:
+                                      common_config:
+                                        enabled:
+                                          default_value: true
+                                          runtime_key: gzip_enabled
+
+                                        # Список MIME, аналог nginx `gzip_types`
+                                        content_type:
+                                          - text/html
+                                          - text/css
+                                          - application/javascript
+                                          - application/json
+                                          - application/xml
+                                          - image/svg+xml
+
+                                  # ------------
+                                  # RATE-LIMIT
+                                  # ------------
+                                - name: envoy.filters.http.local_ratelimit
+                                  typed_config:
+                                    "@type": type.googleapis.com/envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit
+                                    stat_prefix: local_rate_limit
+
+                                    # Глобально включено
+                                    filter_enabled:
+                                      default_value: { numerator: 1000, denominator: HUNDRED }
+                                    filter_enforced:
+                                      default_value: { numerator: 1000, denominator: HUNDRED }
+
+                                    # Глобальная «сеточная» настройка (на всякий случай)
+                                    token_bucket:
+                                      max_tokens: 10 # ~10 rps
+                                      tokens_per_fill: 10
+                                      fill_interval: 1s
+
+                                    # Маркеры в ответ — удобно для диагностики
+                                    response_headers_to_add:
+                                      - header: { key: "x-local-rate-limit", value: "true" }
+                                        append_action: APPEND_IF_EXISTS_OR_ADD
+
+                                - name: envoy.filters.http.router
+                                  typed_config:
+                                    "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+
+                              # ----------------------------------
+                              # РОУТИНГ ДЛЯ 443 (ОТДАЧА СТРАНИЦ)
+                              # ----------------------------------
+                              route_config:
+                                name: https_routes
+                                virtual_hosts:
+
+                                  # ===================
+                                  # SITE: ASTERNO.COM
+                                  # ===================
+                                  - name: asterno.com_host
+                                    domains: ["asterno.com", "www.asterno.com"]
+                                    routes:
+                                      - match: { prefix: "/" }
+                                        # Простейшая отдача HTML из конфига
+                                        direct_response:
+                                          status: 200
+                                          body:
+                                            inline_string: "<!doctype html><html><body><h1>I LOVE YOU</h1></body></html>"
+
+                                    # Добавляем нужные заголовки в ответ
+                                    response_headers_to_add:
+                                      # HSTS: мягкий старт (сутки). Поднимайте после проверки.
+                                      # max-age=86400 говорит браузеру: 24 часа обращаться к этому хосту только по HTTPS.
+                                      # По истечении 86400 сек политика просто истечёт, и браузер снова сможет ходить по HTTP, пока не получит заголовок HSTS заново.
+                                      # Поднимать max-age нужно, чтобы уменьшить «окно уязвимости»: чем больше срок, тем дольше браузер будет игнорировать HTTP и попытки downgrade-атак.
+                                      # В проде обычно ставят 6–12 месяцев.
+                                      # includeSubDomains распространяет HSTS на все поддомены текущего домена.
+                                      # preload — флаг для включения домена в вшитый в браузеры список HSTS. Тогда даже первый заход на сайт (до получения заголовка) пойдёт строго по HTTPS.
+                                      - header: { key: "strict-transport-security", value: "max-age=86400" }
+                                        append_action: OVERWRITE_IF_EXISTS_OR_ADD
+                                      # Явный контент-тайп
+                                      - header: { key: "content-type", value: "text/html; charset=utf-8" }
+                                        append_action: OVERWRITE_IF_EXISTS_OR_ADD
+                                      # Запрещает браузеру «угадывать» тип контента, если он отличается от объявленного.
+                                      # Защищает от: MIME sniffing — когда, например, JS выполнится, хотя сервер пометил файл как текст.
+                                      - header: { key: "x-content-type-options", value: "nosniff" }
+                                        append_action: OVERWRITE_IF_EXISTS_OR_ADD
+                                      # Запрещает встраивать страницы в <iframe> с чужих доменов.
+                                      # Защищает от: clickjacking (подмена интерфейса под «плёнкой»).
+                                      - header: { key: "x-frame-options", value: "SAMEORIGIN" }
+                                        append_action: OVERWRITE_IF_EXISTS_OR_ADD
+                                      # Контролирует, какие данные попадают в Referer при переходах/запросах.
+                                      - header: { key: "referrer-policy", value: "strict-origin-when-cross-origin" }
+                                        append_action: OVERWRITE_IF_EXISTS_OR_ADD
+
+                                    # Удаляем не нужные заголовки в ответе
+                                    response_headers_to_remove:
+                                      - "server"                        # Скрыть тип прокси/сервера (убрать 'server: envoy'); меньше данных для fingerprinting
+                                      - "x-powered-by"                  # Убрать технологический след (Node.js/Express, PHP и т.д.)
+                                      - "x-aspnet-version"              # Убрать точную версию ASP.NET — снижает риск целевых эксплойтов по версии
+                                      - "x-runtime"                     # (Rails) убрать время исполнения и сам факт использования Rails
+                                      - "x-envoy-upstream-service-time" # Убрать внутреннюю метрику latency от Envoy до апстрима (полезно скрыть в проде)
+
+                                  # =========================
+                                  # SITE: CLOUD.ASTERNO.COM
+                                  # =========================
+                                  - name: cloud.asterno.com_host
+                                    domains: ["cloud.asterno.com"]
+                                    routes:
+                                      - match: { prefix: "/" }
+                                        route:
+                                          cluster: cloud.asterno.com_s51_nextcloud
+                                          # Таймауты только для cloud.asterno.com (долгие запросы, WebDAV)
+                                          timeout: 0s    # общее время обработки апстримов (0 = не режем загрузки/скачивания)
+                                          idle_timeout: 3600s # бездействие между чанками (дольше для больших файлов/WebDAV)
+
+                                    # Важно: не навязываем Content-Type — оставляем апстримный
+                                    response_headers_to_add:
+                                      - header: { key: "strict-transport-security", value: "max-age=86400" }
+                                        append_action: OVERWRITE_IF_EXISTS_OR_ADD
+                                      - header: { key: "x-content-type-options", value: "nosniff" }
+                                        append_action: OVERWRITE_IF_EXISTS_OR_ADD
+
+                                    # Удаляем не нужные заголовки в ответе
+                                    response_headers_to_remove:
+                                      - "server"                        # Скрыть тип прокси/сервера (убрать 'server: envoy'); меньше данных для fingerprinting
+                                      - "x-powered-by"                  # Убрать технологический след (Node.js/Express, PHP и т.д.)
+                                      - "x-envoy-upstream-service-time" # Убрать внутреннюю метрику latency от Envoy до апстрима (полезно скрыть в проде)
+
+                              # --------------------------
+                              # ЛОГИ ПО ДОМЕНАМ + ОБЩИЙ
+                              # --------------------------
+                              access_log:
+                                # ASTERNO.COM — лог :443
+                                - name: envoy.access_loggers.file
+                                  filter:
+                                    header_filter:
+                                      header:
+                                        name: ":authority"
+                                        string_match: { exact: "asterno.com" }
+                                  typed_config:
+                                    "@type": type.googleapis.com/envoy.extensions.access_loggers.file.v3.FileAccessLog
+                                    path: {{ key_components.platform_edge.envoy.vars.logs.asterno }}
+                                    log_format:
+                                      text_format_source:
+                                        inline_string: '[%START_TIME%] "%REQ(:METHOD)% %REQ(X-ENVOY-ORIGINAL-PATH?:PATH)%" %RESPONSE_CODE% %BYTES_SENT% "%REQ(:AUTHORITY)%" "%DOWNSTREAM_REMOTE_ADDRESS%"'
+
+                                # CLOUD.ASTERNO.COM — лог :443
+                                - name: envoy.access_loggers.file
+                                  filter:
+                                    header_filter:
+                                      header:
+                                        name: ":authority"
+                                        string_match: { exact: "cloud.asterno.com" }
+                                  typed_config:
+                                    "@type": type.googleapis.com/envoy.extensions.access_loggers.file.v3.FileAccessLog
+                                    path: {{ key_components.platform_edge.envoy.vars.logs.cloud }}
+                                    log_format:
+                                      text_format_source:
+                                        inline_string: '[%START_TIME%] "%REQ(:METHOD)% %REQ(X-ENVOY-ORIGINAL-PATH?:PATH)%" %RESPONSE_CODE% %BYTES_SENT% "%REQ(:AUTHORITY)%" "%DOWNSTREAM_REMOTE_ADDRESS%"'
+
+                                # Общий лог :443
+                                - name: envoy.access_loggers.file
+                                  typed_config:
+                                    "@type": type.googleapis.com/envoy.extensions.access_loggers.file.v3.FileAccessLog
+                                    path: {{ key_components.platform_edge.envoy.vars.logs.main }}
+                                    log_format:
+                                      text_format_source:
+                                        inline_string: '[%START_TIME%] "%REQ(:METHOD)% %REQ(X-ENVOY-ORIGINAL-PATH?:PATH)%" %RESPONSE_CODE% %BYTES_SENT% "%REQ(:AUTHORITY)%" "%DOWNSTREAM_REMOTE_ADDRESS%"'
+                {% else %}
+                  # ===============================================================
+                  # LISTENER: 443 — HTTPS
+                  # Временный режим: listener отключен до выпуска TLS-сертификатов
+                  # Для включения нужно задать tls.enabled = true
+                  # ===============================================================
+                {% endif %}
+
+                # ====================
+                # CLUSTER (upstreams)
+                # ====================
+                clusters:
+                  - name: cloud.asterno.com_s51_nextcloud
+                    type: STATIC
+                    connect_timeout: {{ key_components.platform_edge.envoy.vars.upstreams.nextcloud.connect_timeout }}
+                    lb_policy: ROUND_ROBIN
+
+                    # Явно HTTP/1.1 к апстриму (Nextcloud/Nginx на S51:8080 — без TLS)
+                    typed_extension_protocol_options:
+                      envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+                        "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+                        explicit_http_config:
+                          http_protocol_options: {}   # <— HTTP/1.1 к S51
+
+                    # Пер-апстримный idle-timeout: дольше сессии WebDAV/загрузок
+                    common_http_protocol_options:
+                      idle_timeout: {{ key_components.platform_edge.envoy.vars.upstreams.nextcloud.idle_timeout }}
+
+                    load_assignment:
+                      cluster_name: cloud.asterno.com_s51_nextcloud
+                      endpoints:
+                        - lb_endpoints:
+                            - endpoint:
+                                address:
+                                  socket_address:
+                                    address: {{ key_components.platform_edge.envoy.vars.upstreams.nextcloud.address }}   # <— адрес S51 по WG
+                                    # address: 10.11.0.51   # Предыдущая подсеть WG.
+                                    port_value: {{ key_components.platform_edge.envoy.vars.upstreams.nextcloud.port }}      # <— порт Nextcloud/Nginx на S51
+
+              # ======================
+              # ADMIN (loopback only)
+              # ======================
+              admin:
+                access_log_path: /dev/null
+                address:
+                  socket_address:
+                    address: {{ key_components.platform_edge.envoy.vars.admin_bind_address }}
+                    port_value: {{ key_components.platform_edge.envoy.vars.admin_port }}
+            validate: "/usr/bin/envoy --mode validate -c %s"
+            notify: ["ENVOY | apply"]
+          envoy_main_envoy_service:
+            use: true
+            id: 5
+            dir:
+              desc: "/etc/systemd/system"
+              owner: "root"
+              group: "root"
+              mode: "0755"
+              apply:
+                meta: { when: "always" }
+            file:
+              desc: "envoy.service"
+              owner: "root"
+              group: "root"
+              mode: "0644"
+              apply:
+                content: { when: "always", mode: "replace" }
+                meta: { when: "always" }
+            content: |
+              [Unit]
+              # Описание юнита в systemctl/list-units
+              Description=Envoy Reverse Proxy
+
+              # Ждём готовности сети (и DNS)
+              Wants=network-online.target
+              After=network-online.target
+
+              [Service]
+              # 1. Идентичность/права процесса
+              # Запуск под отдельным системным пользователем (минимум привилегий)
+              User=envoy
+              Group=envoy
+
+              # Пре-команды (ExecStartPre/ExecStartPost) исполняются от root,
+              # а основной процесс — от User/Group. Удобно для валидации конфигов
+              PermissionsStartOnly=true
+
+              # 2. Валидация и запуск
+              # Перед стартом валидируем конфиг (не запустится при ошибке)
+              ExecStartPre=/usr/bin/envoy --mode validate -c /etc/envoy/envoy.yaml
+
+              # Основной запуск: конфиг, логическое имя кластера (для метрик), число воркеров
+              ExecStart=/usr/bin/envoy -c /etc/envoy/envoy.yaml --service-cluster {{ key_components.platform_edge.envoy.vars.cluster_name }} --concurrency {{ key_components.platform_edge.envoy.vars.concurrency }}
+
+              # 3. Минимально необходимые capabilities
+              # Разрешаем только возможность слушать привилегированные порты (<1024)
+              CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+
+              # Делаем capability «наследуемой» дочерним процессом (envoy воркеры)
+              AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+              # Запрещаем получение дополнительных привилегий (через setuid-бинарники и т.п.)
+              NoNewPrivileges=true
+
+              # 4. Лимиты и маска прав на создаваемые файлы
+              # Запас по файловым дескрипторам для большого числа соединений
+              LimitNOFILE=100000
+
+              # 0027: владелец rw-, группа r--, остальные --- (для логов/временных файлов)
+              UMask=0027
+
+              # 5. Изоляция процесса и файловой системы
+              # Выделяем отдельные /tmp и /var/tmp для Envoy
+              PrivateTmp=true
+
+              # Прячем «опасные» устройства из /dev
+              PrivateDevices=true
+
+              # Монтируем системные пути только для чтения (кроме явно разрешённых ниже)
+              ProtectSystem=full
+
+              # Запрещаем доступ к домашним каталогам пользователей
+              ProtectHome=true
+
+              # Не разрешаем управлять ядровыми модулями/настройками/логами/контроллерами
+              ProtectKernelModules=true
+              ProtectKernelTunables=true
+              ProtectKernelLogs=true
+              ProtectControlGroups=true
+
+              # Запрещаем менять системные часы/hostname/личность процесса
+              ProtectClock=true
+              ProtectHostname=true
+              LockPersonality=true
+
+              # Запрещаем создавать исполнимые страницы в памяти (W^X)
+              MemoryDenyWriteExecute=true
+
+              # Запрещаем set*id-операции в процессе
+              RestrictSUIDSGID=true
+
+              # 6. Защита /proc и видимость процессов
+              # Скрываем чужие процессы в /proc
+              ProtectProc=invisible
+
+              # Ограничиваем /proc до PID-информации (минимально необходимое)
+              ProcSubset=pid
+
+              # 7. Сетевые ограничения
+              # Разрешаем IPv4, IPv6 и UNIX-сокеты (для локальных связок)
+              RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+              # 8. Явные права на пути (поверх ProtectSystem)
+              # Только чтение конфигов и сертификатов (TLS-терминация)
+              ReadOnlyPaths=/etc/envoy /etc/ssl /etc/letsencrypt /usr/share/ca-certificates
+
+              # Запись только в каталог логов
+              ReadWritePaths=/var/log/envoy
+
+              # 9. Ограничение системных вызовов (seccomp)
+              # «Чёрный список» классов syscalls, не нужных сервису
+              SystemCallFilter=~@mount @module @raw-io @reboot @swap @cpu-emulation @obsolete @debug @keyring
+
+              # Возвращаемая ошибка при попытке запрещённого syscall
+              SystemCallErrorNumber=EPERM
+
+              # 10. Политика перезапуска
+              # Перезапускаем при сбое, с небольшой паузой
+              Restart=always
+              RestartSec=2
+
+              [Install]
+              # Автоматический старт при загрузке
+              WantedBy=multi-user.target
+            validate: "/usr/bin/systemd-analyze verify %s"
+            notify: ["ENVOY | apply"]
+          envoy_logrotate_main_envoy: "{{ key_components.observability.logrotate.config.files.envoy_logrotate_main_envoy }}"
+          envoy_iptables_913_envoy_rules_v4_rules: "{{ key_components.firewall.iptables.config.files.envoy_iptables_913_envoy_rules_v4_rules }}"
+          envoy_fail2ban_main_jail_envoy_local: "{{ key_components.guard.fail2ban.config.files.envoy_fail2ban_main_jail_envoy_local }}"
+          envoy_fail2ban_main_filter_envoy_conf: "{{ key_components.guard.fail2ban.config.files.envoy_fail2ban_main_filter_envoy_conf }}"
+  platform_data:
+    stage: 3100
+    #postgresql:
+    #redis:
+  platform_messaging:
+    stage: 3200
+    #nats:
+    #kafka:
+  platform_apps:
+    stage: 3300
+    #nextcloud:
+    #gitlab:
+    #runner:
+
+key_catalog:
+  validate: true
+  packages:
+    procps:
+      manager: "apt"
+      names: ["procps"]
+    curl:
+      manager: "apt"
+      names: ["curl"]
+    wget:
+      manager: "apt"
+      names: ["wget"]
+    vim:
+      manager: "apt"
+      names: ["vim"]
+
+    nextcloud_desktop:
+      manager: "apt"
+      names: ["nextcloud-desktop"]
+    libreoffice:
+      manager: "apt"
+      names: ["libreoffice"]
+    visual_studio_code:
+      manager: "apt"
+      names: ["code"]
+      repos: ["microsoft_vscode"]
+    ansible:
+      manager: "apt"
+      names: ["ansible"]
+
+    firefox:
+      manager: "apt"
+      names: ["firefox"]
+      repos: ["mozillateam"]
+    opera:
+      manager: "apt"
+      names: ["opera-stable"]
+      repos: ["opera_browser"]
+    veracrypt:
+      manager: "apt"
+      names: ["veracrypt"]
+      repos: ["unit193_encryption"]
+    keepassxc:
+      manager: "apt"
+      names: ["keepassxc"]
+      repos: ["keepassxc_stable"]
+    obsidian:
+      manager: "deb_url"
+      names: ["obsidian"]
+      deb:
+        version: "1.11.7"
+        url: "https://github.com/obsidianmd/obsidian-releases/releases/download/v{{ key_catalog.packages.obsidian.deb.version }}/obsidian_{{ key_catalog.packages.obsidian.deb.version }}_amd64.deb"
+        dest: "/var/cache/ansible-debs/obsidian/obsidian_{{ key_catalog.packages.obsidian.deb.version }}_amd64.deb"
+    telegram:
+      manager: "apt"
+      names: ["telegram"]
+      repos: ["atareao_telegram"]
+    vlc:
+      manager: "apt"
+      names: ["vlc"]
+    tlp:
+      manager: "apt"
+      names: ["tlp", "tlp-rdw"]
+      notify: ["TLP | apply"]
+
+    openssh_server:
+      manager: "apt"
+      names: ["openssh-server"]
+      notify: ["SSH | apply"]
+    openssh_client:
+      manager: "apt"
+      names: ["openssh-client"]
+
+    grub2_common:
+      manager: "apt"
+      names: ["grub2-common"]
+
+    systemd:
+      manager: "apt"
+      names: ["systemd"]
+    logrotate:
+      manager: "apt"
+      names: ["logrotate"]
+
+    timeshift:
+      manager: "apt"
+      names: ["timeshift"]
+
+    systemd_resolved:
+      manager: "apt"
+      names: ["systemd-resolved"]
+    wireguard:
+      manager: "apt"
+      names: ["wireguard", "wireguard-tools"]
+      notify: ["WIREGUARD | apply"]
+    sing_box:
+      manager: "apt"
+      names: ["sing-box"]
+      repos: ["sagernet"]
+      notify: ["SINGBOX | apply"]
+
+    iptables:
+      manager: "apt"
+      names: ["iptables", "iptables-persistent", "netfilter-persistent", "ipset"]
+      notify: ["IPTABLES | apply"]
+
+    fail2ban:
+      manager: "apt"
+      names: ["fail2ban"]
+      notify: ["FAIL2BAN | apply"]
+
+    clamav:
+      manager: "apt"
+      names: ["clamav", "clamav-daemon", "clamav-freshclam"]
+      notify: ["CLAMAV | apply"]
+
+    git:
+      manager: "apt"
+      names: ["git"]
+
+    certbot:
+      manager: "apt"
+      names: ["certbot"]
+      notify: ["CERTBOT | apply"]
+    python3_pip:
+      manager: "apt"
+      names: ["python3-pip"]
+    acl:
+      manager: "apt"
+      names: ["acl"]
+    envoy:
+      manager: "apt"
+      names: ["envoy"]
+      repos: ["envoyproxy"]
+
+  defaults:
+    apt:
+      suite: "{{ ansible_facts['distribution_release'] }}"
+      components: ["main"]
+      architectures: ["amd64"]
+      sources_dir: "/etc/apt/sources.list.d"
+      keyrings_dir: "/etc/apt/keyrings"
+      prefer_deb822: true
+  repos:
+    mozillateam:
+      type: "launchpad_ppa" # launchpad_ppa | deb822 | legacy_list | ubuntu_archive
+      ppa: "mozillateam/ppa"
+      suite: "{{ key_catalog.defaults.apt.suite }}"
+      components: "{{ key_catalog.defaults.apt.components }}"
+      keyring: "launchpad_mozillateam"
+      cleanup:
+        files:
+          - "/etc/apt/sources.list.d/*mozillateam*"
+          - "/etc/apt/sources.list.d/*LP-PPA-mozillateam*"
+        keyrings:
+          - "/etc/apt/keyrings/mozillateam-ppa.*"
+      pin:
+        file: "/etc/apt/preferences.d/mozillateam"
+        rules:
+          - id: 10
+            package: "*"
+            pin: "release o=LP-PPA-mozillateam"
+            priority: 1001
+    opera_browser:
+      type: "deb822"
+      uris: ["https://deb.opera.com/opera-stable/"]
+      suite: "stable"
+      components: ["non-free"]
+      architectures: ["amd64"]
+      keyring: "opera_archive"
+      cleanup:
+        files:
+          - "/etc/apt/sources.list.d/opera*.list"
+          - "/etc/apt/sources.list.d/opera*.sources"
+          - "/etc/apt/sources.list.d/*opera*.list"
+          - "/etc/apt/sources.list.d/*opera*.sources"
+          - "/etc/apt/sources.list.d/*opera-stable*.list"
+          - "/etc/apt/sources.list.d/*opera-stable*.sources"
+          - "/etc/apt/sources.list.d/*deb_opera_com*.list"
+          - "/etc/apt/sources.list.d/*deb_opera_com*.sources"
+          - "/etc/apt/sources.list.d/*archive_uri*opera*.list"
+          - "/etc/apt/sources.list.d/*archive_uri*opera*.sources"
+        keyrings:
+          - "/etc/apt/keyrings/opera-browser.gpg"
+          - "/usr/share/keyrings/opera-browser.gpg"
+        sources_list_regexps:
+          - '.*deb\.opera\.com/opera-stable.*'
+    unit193_encryption:
+      type: "launchpad_ppa"
+      ppa: "unit193/encryption"
+      suite: "{{ key_catalog.defaults.apt.suite }}"
+      components: "{{ key_catalog.defaults.apt.components }}"
+      keyring: "launchpad_unit193_encryption"
+      cleanup:
+        files:
+          - "/etc/apt/sources.list.d/*unit193*"
+          - "/etc/apt/sources.list.d/*encryption*"
+        keyrings:
+          - "/etc/apt/keyrings/unit193-encryption-ppa.*"
+    keepassxc_stable:
+      type: "launchpad_ppa"
+      ppa: "keepassxc-team/keepassxc-stable"
+      suite: "{{ key_catalog.defaults.apt.suite }}"
+      components: "{{ key_catalog.defaults.apt.components }}"
+      keyring: "launchpad_keepassxc_stable"
+      cleanup:
+        files:
+          - "/etc/apt/sources.list.d/*keepassxc*"
+          - "/etc/apt/sources.list.d/*phoerious*"
+          - "/etc/apt/sources.list.d/*keepassxc-team*"
+        keyrings:
+          - "/etc/apt/keyrings/keepassxc-stable-ppa.*"
+    atareao_telegram:
+      type: "launchpad_ppa"
+      ppa: "atareao/telegram"
+      suite: "{{ key_catalog.defaults.apt.suite }}"
+      components: "{{ key_catalog.defaults.apt.components }}"
+      keyring: "launchpad_atareao_telegram"
+      cleanup:
+        files:
+          - "/etc/apt/sources.list.d/*atareao*telegram*"
+          - "/etc/apt/sources.list.d/*LP-PPA-atareao-telegram*"
+        keyrings:
+          - "/etc/apt/keyrings/atareao-telegram-ppa.*"
+    microsoft_vscode:
+      type: "deb822"
+      uris: ["https://packages.microsoft.com/repos/code"]
+      suite: "stable"
+      components: ["main"]
+      architectures: ["amd64"]
+      keyring: "microsoft_release"
+      cleanup:
+        files:
+          - "/etc/apt/sources.list.d/vscode.list"
+          - "/etc/apt/sources.list.d/vscode.sources"
+          - "/etc/apt/sources.list.d/microsoft_vscode.sources"
+        keyrings:
+          - "/etc/apt/keyrings/microsoft.gpg"
+          - "/etc/apt/keyrings/packages.microsoft.gpg"
+          - "/usr/share/keyrings/microsoft.gpg"
+          - "/usr/share/keyrings/packages.microsoft.gpg"
+    sagernet:
+      type: "deb822"
+      uris: ["https://deb.sagernet.org/"]
+      suite: "*"
+      components: ["*"]
+      architectures: ["amd64"]
+      keyring: "sagernet_release"
+      cleanup:
+        files:
+          - "/etc/apt/sources.list.d/sagernet.list"
+          - "/etc/apt/sources.list.d/sagernet.sources"
+          - "/etc/apt/sources.list.d/*sagernet*.list"
+          - "/etc/apt/sources.list.d/*sagernet*.sources"
+          - "/etc/apt/sources.list.d/*sing-box*.list"
+          - "/etc/apt/sources.list.d/*sing-box*.sources"
+        keyrings:
+          - "/etc/apt/keyrings/sagernet.asc"
+          - "/usr/share/keyrings/sagernet.asc"
+        sources_list_regexps:
+          - '.*deb\.sagernet\.org.*'
+    envoyproxy:
+      type: "deb822"
+      uris: ["https://apt.envoyproxy.io"]
+      suite: "jammy"
+      components: ["main"]
+      architectures: ["amd64"]
+      keyring: "envoyproxy_release"
+      cleanup:
+        files:
+          - "/etc/apt/sources.list.d/envoy*.list"
+          - "/etc/apt/sources.list.d/envoy*.sources"
+          - "/etc/apt/sources.list.d/*envoyproxy*.list"
+          - "/etc/apt/sources.list.d/*envoyproxy*.sources"
+        keyrings:
+          - "/etc/apt/keyrings/envoy-keyring.gpg"
+          - "/etc/apt/keyrings/envoyproxy*.gpg"
+        sources_list_regexps:
+          - '.*apt\.envoyproxy\.io.*'
+  keyrings:
+    launchpad_mozillateam:
+      type: "armored_url" # armored_url | dearmored_url | file | embedded
+      url: "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x738BEB9321D1AAEC13EA9391AEBDF4819BE21867"
+      dest: "/etc/apt/keyrings/mozillateam-ppa.asc"
+      owner: "root"
+      group: "root"
+      mode: "0644"
+      fingerprint: "738BEB9321D1AAEC13EA9391AEBDF4819BE21867"
+    opera_archive:
+      type: "dearmored_url"
+      url: "https://deb.opera.com/archive.key"
+      fingerprint: "6C86BE214648376680CA957B11EE8C00B693A745"
+      dest: "/usr/share/keyrings/opera-browser.gpg"
+      owner: "root"
+      group: "root"
+      mode: "0644"
+    launchpad_unit193_encryption:
+      type: "armored_url"
+      fingerprints:
+        - "A2464CAD19240F2C59FC031F9B9FBDD5426B515F"
+        - "03647209B58A653A"
+      dest: "/etc/apt/keyrings/unit193-encryption-ppa.asc"
+      owner: "root"
+      group: "root"
+      mode: "0644"
+    launchpad_keepassxc_stable:
+      type: "armored_url"
+      fingerprint: "2E0A7615A02F23C5934BE31E8199E17F755F44A9"
+      dest: "/etc/apt/keyrings/keepassxc-stable-ppa.asc"
+      owner: "root"
+      group: "root"
+      mode: "0644"
+    launchpad_atareao_telegram:
+      type: "armored_url"
+      fingerprint: "24D6ECA2F0503C89698F226025402D509B042DD9"
+      dest: "/etc/apt/keyrings/atareao-telegram-ppa.asc"
+      owner: "root"
+      group: "root"
+      mode: "0644"
+    microsoft_release:
+      type: "dearmored_url"
+      url: "https://packages.microsoft.com/keys/microsoft.asc"
+      fingerprint: "BC528686B50D79E339D3721CEB3E94ADBE1229CF"
+      dest: "/etc/apt/keyrings/microsoft.gpg"
+      owner: "root"
+      group: "root"
+      mode: "0644"
+    sagernet_release:
+      type: "armored_url"
+      url: "https://sing-box.app/gpg.key"
+      dest: "/etc/apt/keyrings/sagernet.asc"
+      owner: "root"
+      group: "root"
+      mode: "0644"
+    envoyproxy_release:
+      type: "dearmored_url"
+      url: "https://apt.envoyproxy.io/signing.key"
+      dest: "/etc/apt/keyrings/envoy-keyring.gpg"
+      owner: "root"
+      group: "root"
+      mode: "0644"

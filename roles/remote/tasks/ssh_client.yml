@@ -1,0 +1,39 @@
+# REMOTE | TASKS | SSH CLIENT
+
+- name: "SSH CLIENT | validate"
+  ansible.builtin.assert:
+    that:
+      - key_components.remote.ssh_client.vars.remote_user is defined and
+        key_components.remote.ssh_client.vars.remote_user | length > 0
+      - key_components.remote.ssh_client.vars.remote_host is defined and
+        key_components.remote.ssh_client.vars.remote_host | length > 0 and
+        key_components.remote.ssh_client.vars.remote_host != "vault"
+      - key_components.remote.ssh_client.vars.remote_port is defined
+      - key_components.remote.ssh_client.vars.private_key_file is defined and
+        key_components.remote.ssh_client.vars.private_key_file | length > 0
+    fail_msg: >-
+      Validation failed: required parameters are not set.
+      Required: remote_host, remote_user, remote_port, private_key_file.
+  changed_when: false
+  when:
+    - (key_components.remote.ssh_client.vars.rpf.enabled or key_components.remote.ssh_client.vars.socks.enabled) | bool
+
+- name: "SSH CLIENT | setup component"
+  ansible.builtin.include_role:
+    name: helpers
+    tasks_from: h_component_setup.yml
+  vars: { component_group: "remote", component_name: "ssh_client" }
+
+- name: "SSH CLIENT | enable and start service"
+  ansible.builtin.systemd:
+    name: "ssh_rpf.service"
+    enabled: true
+    state: "started"
+    daemon_reload: true
+  when:
+    - (key_components.remote.ssh_client.vars.rpf.enabled or key_components.remote.ssh_client.vars.socks.enabled) | bool
+
+- name: "SSH CLIENT | flush handlers"
+  ansible.builtin.meta: "flush_handlers"
+  when:
+    - (key_components.remote.ssh_client.vars.rpf.enabled or key_components.remote.ssh_client.vars.socks.enabled) | bool

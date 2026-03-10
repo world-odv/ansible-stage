@@ -1,0 +1,11 @@
+# HELPERS | TASKS | HELPER COMPONENT PACKAGE INSTALL
+# vars:
+#   package_name: string
+
+- name: "HELPER COMPONENT PACKAGE INSTALL | {{ package_name }} | install (apt)"
+  ansible.builtin.include_tasks: h_component_package_install_apt.yml
+  when: key_catalog.packages[package_name].manager == 'apt'
+
+- name: "HELPER COMPONENT PACKAGE INSTALL | {{ package_name }} | install (deb_url)"
+  ansible.builtin.include_tasks: h_component_package_install_deb_url.yml
+  when: key_catalog.packages[package_name].manager == 'deb_url'

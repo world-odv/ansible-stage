@@ -1,0 +1,30 @@
+# HELPERS | HANDLERS | CERTBOT APPLY
+
+- name: "CERTBOT APPLY | check installed"
+  ansible.builtin.stat:
+    path: "/usr/bin/certbot"
+  register: certbot_bin
+  changed_when: false
+
+- name: "CERTBOT APPLY | systemd daemon-reload"
+  ansible.builtin.systemd:
+    daemon_reload: true
+  changed_when: false
+  when: certbot_bin.stat.exists | bool
+
+- name: "CERTBOT APPLY | enable and start timer"
+  ansible.builtin.systemd:
+    name: "certbot.timer"
+    enabled: true
+    state: "started"
+  when:
+    - certbot_bin.stat.exists | bool
+    - (key_components.platform_edge.certbot.enabled | default(false)) | bool
+
+- name: "CERTBOT APPLY | run issue/renew cycle"
+  ansible.builtin.systemd:
+    name: "certbot.service"
+    state: "started"
+  when:
+    - certbot_bin.stat.exists | bool
+    - (key_components.platform_edge.certbot.enabled | default(false)) | bool

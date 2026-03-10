@@ -1,0 +1,12 @@
+# PROD | COMMON
+
+- name: PROD | COMMON
+  hosts:
+    - ansible_controllers
+    - ingress_gateways
+  gather_facts: true
+  become: true
+
+  roles:
+    - role: helpers
+    - role: common

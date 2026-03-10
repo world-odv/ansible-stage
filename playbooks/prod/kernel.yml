@@ -1,0 +1,12 @@
+# PROD | KERNEL
+
+- name: PROD | KERNEL
+  hosts:
+    - ansible_controllers
+    - ingress_gateways
+  gather_facts: true
+  become: true
+
+  roles:
+    - role: helpers
+    - role: kernel

@@ -1,0 +1,12 @@
+# HELPERS | HANDLERS | LOGROTATE APPLY
+
+- name: "LOGROTATE APPLY | check installed"
+  ansible.builtin.stat:
+    path: "/usr/sbin/logrotate"
+  register: logrotate_bin
+  changed_when: false
+
+- name: "LOGROTATE APPLY | dry-run"
+  ansible.builtin.command: "logrotate -d /etc/logrotate.conf"
+  changed_when: false
+  when: logrotate_bin.stat.exists | bool

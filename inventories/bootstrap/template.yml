@@ -1,0 +1,16 @@
+# Fill this file as host_vars/<host>/vault.yml for BOOTSTRAP hosts.
+# Keep this file unencrypted only as a template.
+# Real host_vars/<host>/vault.yml should be encrypted with ansible-vault.
+
+ansible_host: XXX.XXX.XXX.XXX
+
+ansible_user: "login"
+ansible_password: "password"
+ansible_become_password: "{{ ansible_password }}"
+ansible_port: 22
+ssh_auth_method: "password_then_key"
+
+new_user_login: "admin"
+new_user_password: "strong_password_here"
+new_ssh_port: 22
+new_ssh_public_key: "ssh-ed25519 AAAA... admin@workstation"

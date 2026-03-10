@@ -1,0 +1,11 @@
+# PROD | CUSTOM
+
+- name: PROD | CUSTOM
+  hosts:
+    - ansible_controllers
+  gather_facts: true
+  become: true
+
+  roles:
+    - role: helpers
+    - role: custom

@@ -1,0 +1,41 @@
+# REMOTE | TASKS | SSH
+
+- name: "SSH | setup component"
+  ansible.builtin.include_role:
+    name: helpers
+    tasks_from: h_component_setup.yml
+  vars: { component_group: "remote", component_name: "ssh" }
+
+- name: "SSH | RPF | set vars"
+  ansible.builtin.set_fact:
+    ssh_rpf_enabled: "{{ key_components.remote.ssh.vars.rpf.enabled | bool }}"
+    ssh_rpf_user: "{{ key_components.remote.ssh.vars.rpf.user }}"
+    ssh_rpf_pubkeys: "{{ key_components.remote.ssh.vars.rpf.public_keys }}"
+  changed_when: false
+
+- name: "SSH | RPF | create user (restricted, forwarding-only)"
+  ansible.builtin.user:
+    name: "{{ ssh_rpf_user }}"
+    shell: "/usr/sbin/nologin"
+    create_home: true
+    state: "present"
+    password_lock: true
+  when: ssh_rpf_enabled
+
+- name: "SSH | RPF | ensure ~/.ssh"
+  ansible.builtin.file:
+    path: "/home/{{ ssh_rpf_user }}/.ssh"
+    state: "directory"
+    owner: "{{ ssh_rpf_user }}"
+    group: "{{ ssh_rpf_user }}"
+    mode: "0700"
+  when: ssh_rpf_enabled
+
+- name: "SSH | RPF | write authorized_keys"
+  ansible.builtin.copy:
+    dest: "/home/{{ ssh_rpf_user }}/.ssh/authorized_keys"
+    content: "{{ (ssh_rpf_pubkeys | map('trim') | list) | join('\n') }}\n"
+    owner: "{{ ssh_rpf_user }}"
+    group: "{{ ssh_rpf_user }}"
+    mode: "0600"
+  when: ssh_rpf_enabled

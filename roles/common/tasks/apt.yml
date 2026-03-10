@@ -1,0 +1,18 @@
+# COMMON | TASKS | APT
+
+- name: "APT | update cache"
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+  when: key_updates.apt.update_cache | bool
+
+- name: "APT | upgrade packages"
+  ansible.builtin.apt:
+    upgrade: yes
+    allow_downgrades: true
+  when: key_updates.apt.upgrade | bool
+
+- name: "APT | autoremove"
+  ansible.builtin.apt:
+    autoremove: true
+  when: key_updates.apt.autoremove | bool

@@ -1,0 +1,21 @@
+---
+extends: default
+
+ignore: |
+  .git/
+  inventories/**/host_vars/**/vault.yml
+  inventories/**/group_vars/**/vault.yml
+
+rules:
+  comments: disable
+  document-start: disable
+  line-length: disable
+  new-line-at-end-of-file: disable
+  truthy: disable
+  comments-indentation: disable
+  trailing-spaces: disable
+  empty-lines: disable
+  braces: disable
+  brackets: disable
+  commas: disable
+  colons: disable

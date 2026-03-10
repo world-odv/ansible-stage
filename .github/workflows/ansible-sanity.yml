@@ -1,0 +1,71 @@
+name: Ansible Sanity
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+
+jobs:
+  sanity:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python tooling
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Install Ansible collections
+        env:
+          ANSIBLE_LOCAL_TEMP: /tmp/ansible-local
+          ANSIBLE_REMOTE_TEMP: /tmp/ansible-remote
+        run: |
+          ansible-galaxy collection install -r collections/requirements.yml
+
+      - name: Show versions
+        env:
+          ANSIBLE_LOCAL_TEMP: /tmp/ansible-local
+          ANSIBLE_REMOTE_TEMP: /tmp/ansible-remote
+        run: |
+          ansible --version
+          ansible-playbook --version
+          yamllint --version
+
+      - name: Validate required config policy
+        env:
+          ANSIBLE_LOCAL_TEMP: /tmp/ansible-local
+          ANSIBLE_REMOTE_TEMP: /tmp/ansible-remote
+        run: |
+          ansible-config dump --only-changed | grep -q "DEFAULT_HASH_BEHAVIOUR.*= merge"
+
+      - name: Validate inventories (prod and bootstrap)
+        env:
+          ANSIBLE_LOCAL_TEMP: /tmp/ansible-local
+          ANSIBLE_REMOTE_TEMP: /tmp/ansible-remote
+        run: |
+          ansible-inventory -i inventories/prod/hosts.yml --graph > /dev/null
+          ansible-inventory -i inventories/bootstrap/hosts.yml --graph > /dev/null
+
+      - name: YAML syntax lint
+        run: |
+          yamllint -c .yamllint .
+
+      - name: Syntax-check all playbooks
+        env:
+          ANSIBLE_LOCAL_TEMP: /tmp/ansible-local
+          ANSIBLE_REMOTE_TEMP: /tmp/ansible-remote
+        run: |
+          ansible-playbook -i inventories/bootstrap/hosts.yml playbooks/bootstrap.yml --syntax-check
+          for playbook in playbooks/prod/*.yml; do
+            echo "Syntax-check: ${playbook}"
+            ansible-playbook -i inventories/prod/hosts.yml "${playbook}" --syntax-check
+          done

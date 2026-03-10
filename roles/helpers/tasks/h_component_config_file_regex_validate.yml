@@ -1,0 +1,50 @@
+# HELPERS | TASKS | HELPER COMPONENT CONFIG FILE REGEX VALIDATE
+# vars:
+#   rules_json: string
+#   rules_path: string
+
+- name: "HELPER COMPONENT CONFIG FILE REGEX VALIDATE | {{ rules_path }} | parse+validate rules JSON"
+  block:
+
+    - name: "HELPER COMPONENT CONFIG FILE REGEX VALIDATE | {{ rules_path }} | parse JSON"
+      ansible.builtin.set_fact:
+        parsed_rules: "{{ rules_json | from_json }}"
+      changed_when: false
+
+    - name: "HELPER COMPONENT CONFIG FILE REGEX VALIDATE | {{ rules_path }} | rules must be non-empty list"
+      ansible.builtin.assert:
+        that:
+          - parsed_rules is sequence
+          - (parsed_rules | length) > 0
+        fail_msg: "Validation failed: regex rules must be non-empty JSON array"
+
+    - name: "HELPER COMPONENT CONFIG FILE REGEX VALIDATE | {{ rules_path }} | each rule has id/regex/value"
+      ansible.builtin.assert:
+        that:
+          - rule_item.id is defined and rule_item.id is number
+          - rule_item.regex is defined and rule_item.regex is string and (rule_item.regex | trim | length) > 0
+          - rule_item.value is defined and rule_item.value is string
+          # Catch type mistyped: regex_ / value_
+          - (rule_item.keys() | list | difference(['id','regex','value']) | length) == 0
+        fail_msg: "Validation failed: regex rule is invalid: {{ rule_item | to_json }}"
+      loop: "{{ parsed_rules }}"
+      loop_control:
+        loop_var: rule_item
+        label: "rule={{ rule_item.id | default('NO_ID') }}"
+
+    - name: "HELPER COMPONENT CONFIG FILE REGEX VALIDATE | {{ rules_path }} | rule ids must be unique"
+      ansible.builtin.assert:
+        that:
+          - ((parsed_rules | map(attribute='id') | list) | unique | length) == (parsed_rules | length)
+        fail_msg: "Validation failed: duplicate regex rule id found"
+
+  rescue:
+    - name: "HELPER COMPONENT CONFIG FILE REGEX VALIDATE | {{ rules_path }} | fail JSON parsing"
+      ansible.builtin.fail:
+        msg: "Validation failed: invalid JSON for regex mode"
+
+  always:
+    - name: "HELPER COMPONENT CONFIG FILE REGEX VALIDATE | {{ rules_path }} | cleanup parsed_rules"
+      ansible.builtin.set_fact:
+        parsed_rules: []
+      changed_when: false

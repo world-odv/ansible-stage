@@ -6,5 +6,7 @@
 .cache/
 tmp/
 vault/
+.vault_pass
+.vault_pass.*
 **/*.key
 **/*.pem

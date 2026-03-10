@@ -1,0 +1,66 @@
+# CUSTOM | TASKS | MAIN
+
+- name: "HELPER VALIDATE CATALOG | maintenance"
+  ansible.builtin.include_role:
+    name: helpers
+    tasks_from: h_catalog_validate.yml
+  when: key_catalog.validate | bool
+
+- name: "STAGE FACT | maintenance"
+  ansible.builtin.include_role:
+    name: helpers
+    tasks_from: h_stage.yml
+  vars: { stage_role: "custom", stage_value: "{{ key_components.custom.stage }}" }
+
+- name: "FIREFOX | maintenance"
+  ansible.builtin.include_role:
+    name: helpers
+    tasks_from: h_component_setup.yml
+  vars: { component_group: "custom", component_name: "firefox" }
+  when: key_components.custom.firefox.enabled | bool
+
+- name: "OPERA | maintenance"
+  ansible.builtin.include_role:
+    name: helpers
+    tasks_from: h_component_setup.yml
+  vars: { component_group: "custom", component_name: "opera" }
+  when: key_components.custom.opera.enabled | bool
+
+- name: "VERACRYPT | maintenance"
+  ansible.builtin.include_role:
+    name: helpers
+    tasks_from: h_component_setup.yml
+  vars: { component_group: "custom", component_name: "veracrypt" }
+  when: key_components.custom.veracrypt.enabled | bool
+
+- name: "KEEPASSXC | maintenance"
+  ansible.builtin.include_role:
+    name: helpers
+    tasks_from: h_component_setup.yml
+  vars: { component_group: "custom", component_name: "keepassxc" }
+  when: key_components.custom.keepassxc.enabled | bool
+
+- name: "OBSIDIAN | maintenance"
+  ansible.builtin.include_role:
+    name: helpers
+    tasks_from: h_component_setup.yml
+  vars: { component_group: "custom", component_name: "obsidian" }
+  when: key_components.custom.obsidian.enabled | bool
+
+- name: "TELEGRAM | maintenance"
+  ansible.builtin.include_role:
+    name: helpers
+    tasks_from: h_component_setup.yml
+  vars: { component_group: "custom", component_name: "telegram" }
+  when: key_components.custom.telegram.enabled | bool
+
+- name: "VLC | maintenance"
+  ansible.builtin.include_role:
+    name: helpers
+    tasks_from: h_component_setup.yml
+  vars: { component_group: "custom", component_name: "vlc" }
+  when: key_components.custom.vlc.enabled | bool
+
+- name: "TPL | maintenance"
+  ansible.builtin.import_tasks: tlp.yml
+  when: key_components.custom.tlp.enabled | bool

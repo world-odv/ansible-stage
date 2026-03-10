@@ -1,0 +1,81 @@
+# BOOTSTRAP
+
+- name: BOOTSTRAP
+  hosts: ingress_gateways
+  gather_facts: true
+  become: true
+
+  tasks:
+    # ADMIN
+    - name: BOOTSTRAP | ADMIN | create
+      ansible.builtin.user:
+        name: "{{ new_user_login }}"
+        shell: /bin/bash
+        create_home: true
+        state: present
+
+    - name: BOOTSTRAP | ADMIN | set password
+      ansible.builtin.user:
+        name: "{{ new_user_login }}"
+        password: "{{ new_user_password | password_hash('sha512') }}"
+        update_password: always
+
+    - name: BOOTSTRAP | ADMIN | set groups
+      ansible.builtin.user:
+        name: "{{ new_user_login }}"
+        groups: ["sudo", "adm"]
+        append: true # Add groups without deleting existing ones
+
+    # SSH
+    - name: "BOOTSTRAP | SSH | ensure .ssh dir"
+      ansible.builtin.file:
+        path: "/home/{{ new_user_login }}/.ssh"
+        state: directory
+        owner: "{{ new_user_login }}"
+        group: "{{ new_user_login }}"
+        mode: "0700"
+
+    - name: "BOOTSTRAP | SSH | ensure authorized_keys"
+      ansible.builtin.file:
+        path: "/home/{{ new_user_login }}/.ssh/authorized_keys"
+        state: touch
+        owner: "{{ new_user_login }}"
+        group: "{{ new_user_login }}"
+        mode: "0600"
+
+    - name: "BOOTSTRAP | SSH | add public key"
+      ansible.builtin.lineinfile:
+        path: "/home/{{ new_user_login }}/.ssh/authorized_keys"
+        line: "{{ new_ssh_public_key | trim }}"
+        state: present
+        create: true
+
+    - name: "BOOTSTRAP | SSH | fix permissions"
+      ansible.builtin.file:
+        path: "/home/{{ new_user_login }}/.ssh/authorized_keys"
+        state: file
+        owner: "{{ new_user_login }}"
+        group: "{{ new_user_login }}"
+        mode: "0600"
+
+    - name: BOOTSTRAP | SSH | set port
+      ansible.builtin.lineinfile:
+        path: "/etc/ssh/sshd_config"
+        regexp: '^(#\s*)?Port\s+'
+        line: "Port {{ new_ssh_port }}"
+      register: port_task
+      notify: BOOTSTRAP | SSH | reboot
+
+    - name: BOOTSTRAP | SSH | validate sshd
+      ansible.builtin.command: sshd -t
+      changed_when: false
+
+    - name: BOOTSTRAP | SSH | apply changes
+      ansible.builtin.meta: flush_handlers
+
+  handlers:
+    - name: BOOTSTRAP | SSH | reboot # Starts when the port is actually changed
+      ansible.builtin.command: /sbin/reboot
+      async: 1
+      poll: 0
+      ignore_errors: true

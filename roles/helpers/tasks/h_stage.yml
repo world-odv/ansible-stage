@@ -1,0 +1,21 @@
+# HELPERS | TASKS | HELPER STAGE
+# vars:
+#   stage_role: string
+#   stage_value: number
+
+- name: "HELPER STAGE | ensure stage.fact exists and local facts loaded"
+  ansible.builtin.include_tasks: h_stage_fact.yml
+
+- name: "HELPER STAGE | assert stage fact loaded"
+  ansible.builtin.assert:
+    that:
+      - ansible_facts is defined
+      - ansible_facts['ansible_local'] is defined
+      - ansible_facts['ansible_local']['stage'] is defined
+      - ansible_facts['ansible_local']['stage']['stage'] is defined
+    fail_msg: "Validation failed: stage fact is not loaded"
+
+- name: "HELPER STAGE | set host_stage"
+  ansible.builtin.set_fact:
+    host_stage: "{{ ansible_facts['ansible_local']['stage']['stage'] | int }}"
+  changed_when: false

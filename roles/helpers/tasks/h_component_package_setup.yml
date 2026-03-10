@@ -1,0 +1,90 @@
+# HELPERS | TASKS | HELPER COMPONENT PACKAGE SETUP
+# vars:
+#   component_group: string
+#   component_name: string
+#   component_body: mapping
+
+- name: "HELPER COMPONENT PACKAGE SETUP | {{ component_group }}:{{ component_name }} | collect required repos"
+  ansible.builtin.set_fact:
+    component_required_repos: >-
+      {{
+        component_body.uses.packages
+        | map('extract', key_catalog.packages)
+        | map(attribute='repos')
+        | map('default', [])
+        | list
+        | flatten
+        | map('trim')
+        | reject('equalto','')
+        | list
+        | unique
+      }}
+  changed_when: false
+
+- name: "HELPER COMPONENT PACKAGE SETUP | {{ component_group }}:{{ component_name }} | collect all catalog repos"
+  ansible.builtin.set_fact:
+    component_all_catalog_repos: "{{ key_catalog.repos.keys() | list }}"
+  changed_when: false
+
+- name: "HELPER COMPONENT PACKAGE SETUP | {{ component_group }}:{{ component_name }} | global pre-cleanup repo files (once per host)"
+  block:
+    - name: "HELPER COMPONENT PACKAGE SETUP | {{ component_group }}:{{ component_name }} | run global cleanup"
+      ansible.builtin.include_tasks: h_component_package_repo_cleanup.yml
+      vars:
+        repo_name: "{{ cleanup_repo_name_item }}"
+      loop: "{{ component_all_catalog_repos }}"
+      loop_control:
+        loop_var: cleanup_repo_name_item
+        label: "repo={{ cleanup_repo_name_item }}"
+
+    - name: "HELPER COMPONENT PACKAGE SETUP | {{ component_group }}:{{ component_name }} | mark global cleanup done"
+      ansible.builtin.set_fact:
+        repo_global_cleanup_done: true
+      changed_when: false
+  when:
+    - (component_required_repos | length) > 0
+    - (component_all_catalog_repos | length) > 0
+    - not (repo_global_cleanup_done | default(false) | bool)
+
+- name: "HELPER COMPONENT PACKAGE SETUP | {{ component_group }}:{{ component_name }} | setup repos"
+  ansible.builtin.include_tasks: h_component_package_repo_setup.yml
+  vars:
+    repo_name: "{{ setup_repo_name_item }}"
+  loop: "{{ component_required_repos }}"
+  loop_control:
+    loop_var: setup_repo_name_item
+    label: "repo={{ setup_repo_name_item }}"
+  when: (component_required_repos | length) > 0
+
+- name: "HELPER COMPONENT PACKAGE SETUP | {{ component_group }}:{{ component_name }} | compute apt update need"
+  ansible.builtin.set_fact:
+    component_need_apt_update: >-
+      {{
+        (key_updates.apt.update_cache | default(true) | bool)
+        or
+        ((component_required_repos | default([]) | length) > 0)
+      }}
+  changed_when: false
+
+- name: "HELPER COMPONENT PACKAGE SETUP | {{ component_group }}:{{ component_name }} | apt update"
+  ansible.builtin.command:
+    argv:
+      - apt-get
+      - update
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+  register: component_apt_update_result
+  changed_when: false
+  retries: 5
+  delay: 3
+  until: component_apt_update_result.rc == 0
+  when: component_need_apt_update | bool
+
+- name: "HELPER COMPONENT PACKAGE SETUP | {{ component_group }}:{{ component_name }} | install packages"
+  ansible.builtin.include_tasks: h_component_package_install.yml
+  vars:
+    package_name: "{{ component_package_name_item }}"
+  loop: "{{ component_body.uses.packages }}"
+  loop_control:
+    loop_var: component_package_name_item
+    label: "package={{ component_package_name_item }}"

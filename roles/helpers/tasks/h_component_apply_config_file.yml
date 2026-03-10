@@ -1,0 +1,229 @@
+# HELPERS | TASKS | HELPER COMPONENT APPLY CONFIG FILE
+# vars:
+#   component_group: string
+#   component_name:  string
+#   component_body:  mapping
+#   config_key:      string
+#   config:          mapping
+
+- name: "HELPER COMPONENT APPLY CONFIG FILE | {{ component_group }}:{{ component_name }}:{{ config_key }} | compute paths"
+  ansible.builtin.set_fact:
+    config_dir_path: "{{ config.dir.desc | trim }}"
+    config_target: "{{ (config.dir.desc | trim) ~ '/' ~ (config.file.desc | trim) }}"
+    config_backup_dir_path: "/var/backups/ansible{{ config.dir.desc | trim }}"
+    config_backup_path: "/var/backups/ansible{{ config.dir.desc | trim }}/{{ config.file.desc | trim }}.backup"
+  changed_when: false
+
+- name: "HELPER COMPONENT APPLY CONFIG FILE | {{ component_group }}:{{ component_name }}:{{ config_key }} | stat dir (before)"
+  ansible.builtin.stat:
+    path: "{{ config_dir_path }}"
+  register: config_dir_stat
+  changed_when: false
+
+- name: "HELPER COMPONENT APPLY CONFIG FILE | {{ component_group }}:{{ component_name }}:{{ config_key }} | stat target (before)"
+  ansible.builtin.stat:
+    path: "{{ config_target }}"
+  register: config_file_stat
+  changed_when: false
+
+- name: "HELPER COMPONENT APPLY CONFIG FILE | {{ component_group }}:{{ component_name }}:{{ config_key }} | compute apply flags"
+  ansible.builtin.set_fact:
+    config_dir_exists_before: "{{ config_dir_stat.stat.exists | bool }}"
+    config_file_exists_before: "{{ config_file_stat.stat.exists | bool }}"
+    config_dir_ready: >-
+      {{
+        (config_dir_stat.stat.exists | bool) or
+        (config.dir.apply.meta.when in ['always', 'missing'])
+      }}
+    apply_content_needed: >-
+      {{
+        (
+          (config.file.apply.content.when == 'always') or
+          (config.file.apply.content.when == 'exists'  and (config_file_stat.stat.exists | bool)) or
+          (config.file.apply.content.when == 'missing' and not (config_file_stat.stat.exists | bool))
+        )
+        and
+        (
+          (config_dir_stat.stat.exists | bool) or
+          (config.dir.apply.meta.when in ['always', 'missing'])
+        )
+      }}
+  changed_when: false
+
+- name: "HELPER COMPONENT APPLY CONFIG FILE | {{ component_group }}:{{ component_name }}:{{ config_key }} | apply dir meta"
+  ansible.builtin.file:
+    path: "{{ config_dir_path }}"
+    state: directory
+    owner: "{{ config.dir.owner }}"
+    group: "{{ config.dir.group }}"
+    mode: "{{ config.dir.mode }}"
+  when: >-
+    apply_content_needed and
+    (
+      (config.dir.apply.meta.when == 'always') or
+      (config.dir.apply.meta.when == 'exists'  and (config_dir_exists_before | bool)) or
+      (config.dir.apply.meta.when == 'missing' and not (config_dir_exists_before | bool))
+    )
+
+- name: "HELPER COMPONENT APPLY CONFIG FILE | {{ component_group }}:{{ component_name }}:{{ config_key }} | apply content with backup+rollback"
+  block:
+
+    - name: "HELPER COMPONENT APPLY CONFIG FILE | {{ component_group }}:{{ component_name }}:{{ config_key }} | ensure backup dir"
+      ansible.builtin.file:
+        path: "{{ config_backup_dir_path }}"
+        state: directory
+        owner: "root"
+        group: "root"
+        mode: "0755"
+      failed_when: false
+      when: config_file_exists_before | bool
+
+    - name: "HELPER COMPONENT APPLY CONFIG FILE | {{ component_group }}:{{ component_name }}:{{ config_key }} | backup current file (overwrite)"
+      ansible.builtin.copy:
+        remote_src: true
+        src: "{{ config_target }}"
+        dest: "{{ config_backup_path }}"
+        owner: "{{ config.file.owner }}"
+        group: "{{ config.file.group }}"
+        mode: "{{ config.file.mode }}"
+        force: true
+      changed_when: false
+      failed_when: false
+      when: config_file_exists_before | bool
+
+    - name: "HELPER COMPONENT APPLY CONFIG FILE | {{ component_group }}:{{ component_name }}:{{ config_key }} | apply content (mode=replace)"
+      ansible.builtin.include_tasks: h_component_apply_config_file_replace.yml
+      when: config.file.apply.content.mode == 'replace'
+
+    - name: "HELPER COMPONENT APPLY CONFIG FILE | {{ component_group }}:{{ component_name }}:{{ config_key }} | guard regex requires existing file"
+      ansible.builtin.assert:
+        that:
+          - config_file_exists_before | bool
+        fail_msg: "Validation failed: regex mode requires existing file {{ config_target }}"
+      when:
+        - config.file.apply.content.mode == 'regex'
+        - config.file.apply.content.when in ['always', 'exists']
+
+    - name: "HELPER COMPONENT APPLY CONFIG FILE | {{ component_group }}:{{ component_name }}:{{ config_key }} | apply content (mode=regex)"
+      ansible.builtin.include_tasks: h_component_apply_config_file_regex.yml
+      when: config.file.apply.content.mode == 'regex'
+
+  rescue:
+
+    - name: "HELPER COMPONENT APPLY CONFIG FILE | {{ component_group }}:{{ component_name }}:{{ config_key }} | ensure backup dir (rescue)"
+      ansible.builtin.file:
+        path: "{{ config_backup_dir_path }}"
+        state: directory
+        owner: "root"
+        group: "root"
+        mode: "0755"
+      failed_when: false
+
+    - name: "HELPER COMPONENT APPLY CONFIG FILE | {{ component_group }}:{{ component_name }}:{{ config_key }} | save rendered content as .failed"
+      ansible.builtin.copy:
+        dest: "{{ config_backup_path }}.failed"
+        owner: "root"
+        group: "root"
+        mode: "0644"
+        content: "{{ config.content }}"
+        force: true
+      failed_when: false
+      no_log: "{{ not (config.log | default(true) | bool) }}"
+
+    - name: "HELPER COMPONENT APPLY CONFIG FILE | {{ component_group }}:{{ component_name }}:{{ config_key }} | extract failed candidate path"
+      ansible.builtin.set_fact:
+        config_failed_candidate_path: >-
+          {{
+            (
+              (ansible_failed_result.stderr | default('') ~ '\n' ~ ansible_failed_result.msg | default(''))
+              | regex_findall("configuration '([^']+)'")
+              | first
+            ) | default('', true)
+          }}
+      changed_when: false
+      failed_when: false
+
+    - name: "HELPER COMPONENT APPLY CONFIG FILE | {{ component_group }}:{{ component_name }}:{{ config_key }} | stat failed candidate path"
+      ansible.builtin.stat:
+        path: "{{ config_failed_candidate_path }}"
+      register: config_failed_candidate_stat
+      changed_when: false
+      failed_when: false
+      when: (config_failed_candidate_path | length) > 0
+
+    - name: "HELPER COMPONENT APPLY CONFIG FILE | {{ component_group }}:{{ component_name }}:{{ config_key }} | save failed candidate as .failed"
+      ansible.builtin.copy:
+        remote_src: true
+        src: "{{ config_failed_candidate_path }}"
+        dest: "{{ config_backup_path }}.failed"
+        owner: "root"
+        group: "root"
+        mode: "0644"
+        force: true
+      failed_when: false
+      when:
+        - (config_failed_candidate_path | length) > 0
+        - config_failed_candidate_stat.stat.exists | default(false) | bool
+
+    - name: "HELPER COMPONENT APPLY CONFIG FILE | {{ component_group }}:{{ component_name }}:{{ config_key }} | stat backup before rollback"
+      ansible.builtin.stat:
+        path: "{{ config_backup_path }}"
+      register: config_backup_stat
+      changed_when: false
+      failed_when: false
+      when: config_file_exists_before | bool
+
+    - name: "HELPER COMPONENT APPLY CONFIG FILE | {{ component_group }}:{{ component_name }}:{{ config_key }} | rollback from backup (if exists, best effort)"
+      ansible.builtin.copy:
+        remote_src: true
+        src: "{{ config_backup_path }}"
+        dest: "{{ config_target }}"
+        owner: "{{ config.file.owner }}"
+        group: "{{ config.file.group }}"
+        mode: "{{ config.file.mode }}"
+        force: true
+      failed_when: false
+      when:
+        - config_file_exists_before | bool
+        - config_backup_stat.stat.exists | bool
+
+    - name: "HELPER COMPONENT APPLY CONFIG FILE | {{ component_group }}:{{ component_name }}:{{ config_key }} | remove target if it did not exist before"
+      ansible.builtin.file:
+        path: "{{ config_target }}"
+        state: absent
+      when: not (config_file_exists_before | bool)
+
+    - name: "HELPER COMPONENT APPLY CONFIG FILE | {{ component_group }}:{{ component_name }}:{{ config_key }} | fail"
+      ansible.builtin.fail:
+        msg: >-
+          Apply failed for {{ config_target }}.
+          Rollback completed, backup path: {{ config_backup_path }}.
+          Failed candidate path: {{ config_backup_path }}.failed.
+          Root cause: {{
+            ansible_failed_result.msg
+            | default(ansible_failed_result.stderr, true)
+            | default('unknown')
+          }}
+
+  when: apply_content_needed
+
+- name: "HELPER COMPONENT APPLY CONFIG FILE | {{ component_group }}:{{ component_name }}:{{ config_key }} | stat target (after)"
+  ansible.builtin.stat:
+    path: "{{ config_target }}"
+  register: config_file_stat
+  changed_when: false
+
+- name: "HELPER COMPONENT APPLY CONFIG FILE | {{ component_group }}:{{ component_name }}:{{ config_key }} | apply file meta"
+  ansible.builtin.file:
+    path: "{{ config_target }}"
+    state: file
+    owner: "{{ config.file.owner }}"
+    group: "{{ config.file.group }}"
+    mode: "{{ config.file.mode }}"
+  when: >-
+    (config_file_stat.stat.exists | bool) and
+    (
+      (config.file.apply.meta.when == 'always') or
+      (config.file.apply.meta.when == 'exists') or
+      (config.file.apply.meta.when == 'missing' and not (config_file_exists_before | bool))
+    )

@@ -1,0 +1,81 @@
+# HELPERS | HANDLERS | MAIN
+
+- name: "TLP | apply (listener)"
+  listen: "TLP | apply"
+  ansible.builtin.systemd:
+    name: "tlp"
+    state: "restarted"
+
+- name: "SSH RPF | apply (listener)"
+  listen: "SSH RPF | apply"
+  ansible.builtin.systemd:
+    name: "ssh_rpf.service"
+    state: "restarted"
+    enabled: true
+    daemon_reload: true
+
+- name: "SSH | apply (listener)"
+  listen: "SSH | apply"
+  ansible.builtin.systemd:
+    name: "ssh"
+    state: "restarted"
+    enabled: true
+
+- name: "GRUB | apply (listener)"
+  listen: "GRUB | apply"
+  ansible.builtin.include_tasks: "grub_apply.yml"
+
+- name: "SYSCTL | apply (listener)"
+  listen: "SYSCTL | apply"
+  ansible.builtin.include_tasks: "sysctl_apply.yml"
+
+- name: "JOURNALD | apply (listener)"
+  listen: "JOURNALD | apply"
+  ansible.builtin.include_tasks: "journald_apply.yml"
+
+- name: "LOGROTATE | apply (listener)"
+  listen: "LOGROTATE | apply"
+  ansible.builtin.include_tasks: "logrotate_apply.yml"
+
+- name: "TIMESHIFT | apply (listener)"
+  listen: "TIMESHIFT | apply"
+  ansible.builtin.include_tasks: timeshift_apply.yml
+
+- name: "RESOLVED | apply (listener)"
+  listen: "RESOLVED | apply"
+  ansible.builtin.include_tasks: "resolved_apply.yml"
+
+- name: "NETWORKMANAGER | apply (listener)"
+  listen: "NETWORKMANAGER | apply"
+  ansible.builtin.include_tasks: "networkmanager_apply.yml"
+
+- name: "WIREGUARD | apply (listener)"
+  listen: "WIREGUARD | apply"
+  ansible.builtin.systemd:
+    name: "wg-quick@wg0"
+    state: "restarted"
+    enabled: true
+
+- name: "SINGBOX | apply (listener)"
+  listen: "SINGBOX | apply"
+  ansible.builtin.include_tasks: "singbox_apply.yml"
+
+- name: "IPTABLES | apply (listener)"
+  listen: "IPTABLES | apply"
+  ansible.builtin.include_tasks: "iptables_apply.yml"
+
+- name: "FAIL2BAN | apply (listener)"
+  listen: "FAIL2BAN | apply"
+  ansible.builtin.include_tasks: "fail2ban_apply.yml"
+
+- name: "CLAMAV | apply (listener)"
+  listen: "CLAMAV | apply"
+  ansible.builtin.include_tasks: "clamav_apply.yml"
+
+- name: "ENVOY | apply (listener)"
+  listen: "ENVOY | apply"
+  ansible.builtin.include_tasks: "envoy_apply.yml"
+
+- name: "CERTBOT | apply (listener)"
+  listen: "CERTBOT | apply"
+  ansible.builtin.include_tasks: "certbot_apply.yml"

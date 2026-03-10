@@ -1,0 +1,69 @@
+# COMMON | TASKS | LOCALE
+
+- name: "LOCALE | validate"
+  ansible.builtin.assert:
+    that:
+      - key_system.locale.langs is defined and
+        key_system.locale.langs is sequence and
+        key_system.locale.langs is not string and
+        (key_system.locale.langs | length) > 0 and
+        (key_system.locale.langs | difference(['en','ru']) | length) == 0
+    fail_msg: "Validation failed: locale langs must contain only en and ru"
+
+- name: "LOCALE | set locale map"
+  ansible.builtin.set_fact:
+    locale_map:
+      en: "en_US.UTF-8"
+      ru: "ru_RU.UTF-8"
+  changed_when: false
+
+- name: "LOCALE | dedault lang"
+  ansible.builtin.set_fact:
+    default_lang: "{{ 'en' if ('en' in key_system.locale.langs) else (key_system.locale.langs | first) }}"
+  changed_when: false
+
+- name: "LOCALE | compute default locale + required locales"
+  ansible.builtin.set_fact:
+    desired_locale: "{{ locale_map[default_lang] }}"
+    required_locales: "{{ key_system.locale.langs | map('extract', locale_map) | list }}"
+  changed_when: false
+
+- name: "LOCALE | get list available locales"
+  ansible.builtin.command: locale -a
+  register: locale_list
+  changed_when: false
+
+- name: "LOCALE | normalize available locales list"
+  ansible.builtin.set_fact:
+    available_locales_norm: >-
+      {{
+        (locale_list.stdout_lines | default([]))
+        | map('lower')
+        | map('regex_replace', 'utf-8', 'utf8')
+        | list
+      }}
+  changed_when: false
+
+- name: "LOCALE | generate missing locales"
+  ansible.builtin.command: "locale-gen {{ locale_item }}"
+  loop: "{{ required_locales }}"
+  loop_control:
+    loop_var: locale_item
+  when: (locale_item | lower | regex_replace('utf-8','utf8')) not in available_locales_norm
+  changed_when: true
+
+- name: "LOCALE | set default LANG"
+  ansible.builtin.lineinfile:
+    path: /etc/default/locale
+    create: true
+    owner: root
+    group: root
+    mode: "0644"
+    regexp: '^LANG='
+    line: "LANG={{ desired_locale }}"
+  register: locale_default_file
+
+- name: "LOCALE | apply default locale"
+  ansible.builtin.command: "update-locale LANG={{ desired_locale }}"
+  when: locale_default_file.changed
+  changed_when: true

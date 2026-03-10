@@ -1,0 +1,23 @@
+# HELPERS | TASKS | HELPER COMPONENT SETUP
+# vars:
+#   component_group: string
+#   component_name: string
+
+- name: "HELPER COMPONENT SETUP | {{ component_group }}:{{ component_name }} | load component"
+  ansible.builtin.set_fact:
+    component_body: "{{ key_components[component_group][component_name] }}"
+  changed_when: false
+
+- name: "HELPER COMPONENT SETUP | {{ component_group }}:{{ component_name }} | validate component"
+  ansible.builtin.include_tasks: h_component_validate.yml
+
+- name: "HELPER COMPONENT SETUP | {{ component_group }}:{{ component_name }} | setup packages"
+  ansible.builtin.include_tasks: h_component_package_setup.yml
+
+- name: "HELPER COMPONENT SETUP | {{ component_group }}:{{ component_name }} | apply config files"
+  ansible.builtin.include_tasks: h_component_apply_config_files.yml
+  when:
+    - component_body.config is defined
+    - component_body.config is mapping
+    - component_body.config.files is defined
+    - component_body.config.files is mapping

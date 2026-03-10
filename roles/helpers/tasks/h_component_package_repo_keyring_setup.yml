@@ -1,0 +1,218 @@
+# HELPERS | TASKS | HELPER COMPONENT PACKAGE REPO KEYRING SETUP
+# vars:
+#   keyring_name: string
+#   key_catalog: mapping
+
+- name: "HELPER COMPONENT PACKAGE REPO KEYRING SETUP | {{ keyring_name }} | load keyring config"
+  ansible.builtin.set_fact:
+    keyring_body: "{{ key_catalog.keyrings[keyring_name] }}"
+  changed_when: false
+
+- name: "HELPER COMPONENT PACKAGE REPO KEYRING SETUP | {{ keyring_name }} | build fingerprints list"
+  ansible.builtin.set_fact:
+    keyring_fingerprints: >-
+      {{
+        (keyring_body.fingerprints | default([]))
+        + ([keyring_body.fingerprint] if keyring_body.fingerprint is defined else [])
+      }}
+  changed_when: false
+
+- name: "HELPER COMPONENT PACKAGE REPO KEYRING SETUP | {{ keyring_name }} | validate keyring inputs"
+  ansible.builtin.assert:
+    that:
+      - keyring_body.type in ["armored_url", "dearmored_url", "file", "embedded"]
+      - keyring_body.dest is defined and keyring_body.dest is string and (keyring_body.dest | trim | length) > 0
+      - (keyring_body.type not in ["armored_url", "dearmored_url"]) or
+        (
+          (keyring_body.url is defined and (keyring_body.url | trim | length) > 0) or
+          ((keyring_fingerprints | length) > 0)
+        )
+      - (keyring_body.type != "file") or (keyring_body.path is defined and (keyring_body.path | trim | length) > 0)
+      - (keyring_body.type != "embedded") or (keyring_body.content is defined and (keyring_body.content | trim | length) > 0)
+    fail_msg: "Validation failed: keyring config is inconsistent with selected type"
+
+- name: "HELPER COMPONENT PACKAGE REPO KEYRING SETUP | {{ keyring_name }} | ensure required tools present"
+  ansible.builtin.apt:
+    name: ["gnupg", "ca-certificates"]
+    state: present
+    update_cache: false
+
+- name: "HELPER COMPONENT PACKAGE REPO KEYRING SETUP | {{ keyring_name }} | ensure keyrings dir exists"
+  ansible.builtin.file:
+    path: "{{ key_catalog.defaults.apt.keyrings_dir }}"
+    state: directory
+    owner: "root"
+    group: "root"
+    mode: "0755"
+
+- name: "HELPER COMPONENT PACKAGE REPO KEYRING SETUP | {{ keyring_name }} | install (file)"
+  ansible.builtin.copy:
+    src: "{{ keyring_body.path }}"
+    dest: "{{ keyring_body.dest }}"
+    owner: "{{ keyring_body.owner }}"
+    group: "{{ keyring_body.group }}"
+    mode: "{{ keyring_body.mode }}"
+  when: keyring_body.type == "file"
+
+- name: "HELPER COMPONENT PACKAGE REPO KEYRING SETUP | {{ keyring_name }} | install (embedded)"
+  ansible.builtin.copy:
+    dest: "{{ keyring_body.dest }}"
+    owner: "{{ keyring_body.owner }}"
+    group: "{{ keyring_body.group }}"
+    mode: "{{ keyring_body.mode }}"
+    content: "{{ keyring_body.content }}"
+  when: keyring_body.type == "embedded"
+
+- name: "HELPER COMPONENT PACKAGE REPO KEYRING SETUP | {{ keyring_name }} | prepare temp dir"
+  ansible.builtin.file:
+    path: "/var/tmp/ansible-keyrings/{{ keyring_name }}"
+    state: directory
+    owner: "root"
+    group: "root"
+    mode: "0700"
+
+- name: "HELPER COMPONENT PACKAGE REPO KEYRING SETUP | {{ keyring_name }} | download key by url"
+  ansible.builtin.get_url:
+    url: "{{ keyring_body.url | trim }}"
+    dest: "/var/tmp/ansible-keyrings/{{ keyring_name }}/00_url.asc"
+    mode: "0644"
+  register: keyring_download_url
+  when:
+    - keyring_body.type in ["armored_url", "dearmored_url"] and
+      keyring_body.url is defined and
+      (keyring_body.url | trim | length) > 0
+
+- name: "HELPER COMPONENT PACKAGE REPO KEYRING SETUP | {{ keyring_name }} | download keys by fingerprint"
+  ansible.builtin.get_url:
+    url: "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x{{ fingerprint_item }}"
+    dest: "/var/tmp/ansible-keyrings/{{ keyring_name }}/{{ '%02d' | format(index) }}_{{ fingerprint_item | upper }}.asc"
+    mode: "0644"
+  loop: "{{ keyring_fingerprints }}"
+  loop_control:
+    loop_var: fingerprint_item
+    index_var: index
+  register: keyring_download
+  when:
+    - keyring_body.type in ["armored_url", "dearmored_url"] and
+      not (keyring_body.url is defined and (keyring_body.url | trim | length) > 0) and
+      (keyring_fingerprints | length) > 0
+
+- name: "HELPER COMPONENT PACKAGE REPO KEYRING SETUP | {{ keyring_name }} | init downloaded files list"
+  ansible.builtin.set_fact:
+    keyring_downloaded_files: []
+  changed_when: false
+
+- name: "HELPER COMPONENT PACKAGE REPO KEYRING SETUP | {{ keyring_name }} | find downloaded asc files"
+  ansible.builtin.find:
+    paths: "/var/tmp/ansible-keyrings/{{ keyring_name }}"
+    patterns: "*.asc"
+    file_type: file
+  register: keyring_find
+  changed_when: false
+  when: keyring_body.type in ["armored_url", "dearmored_url"]
+
+- name: "HELPER COMPONENT PACKAGE REPO KEYRING SETUP | {{ keyring_name }} | build downloaded files list"
+  ansible.builtin.set_fact:
+    keyring_downloaded_files: "{{ keyring_find.files | map(attribute='path') | list }}"
+  changed_when: false
+  when: keyring_body.type in ["armored_url", "dearmored_url"]
+
+- name: "HELPER COMPONENT PACKAGE REPO KEYRING SETUP | {{ keyring_name }} | assert at least one key downloaded"
+  ansible.builtin.assert:
+    that:
+      - (keyring_downloaded_files | length) > 0
+    fail_msg: "Validation failed: no key files were downloaded"
+  when: keyring_body.type in ["armored_url", "dearmored_url"]
+
+- name: "HELPER COMPONENT PACKAGE REPO KEYRING SETUP | {{ keyring_name }} | assert downloaded files exist"
+  ansible.builtin.stat:
+    path: "{{ kdf_item }}"
+  loop: "{{ keyring_downloaded_files }}"
+  loop_control:
+    loop_var: kdf_item
+  register: keyring_downloaded_stats
+  changed_when: false
+
+- name: "HELPER COMPONENT PACKAGE REPO KEYRING SETUP | {{ keyring_name }} | fail if some key files missing"
+  ansible.builtin.assert:
+    that:
+      - (keyring_downloaded_stats.results | selectattr('stat.exists', 'equalto', true) | list | length) == (keyring_downloaded_files | length)
+    fail_msg: "Validation failed: some downloaded key files are missing"
+
+- name: "HELPER COMPONENT PACKAGE REPO KEYRING SETUP | {{ keyring_name }} | assert downloaded files are valid keys"
+  ansible.builtin.command: "gpg --show-keys --with-colons {{ kdf_item }}"
+  loop: "{{ keyring_downloaded_files }}"
+  loop_control:
+    loop_var: kdf_item
+  register: _keyring_gpg_check
+  changed_when: false
+
+- name: "HELPER COMPONENT PACKAGE REPO KEYRING SETUP | {{ keyring_name }} | collect actual fingerprints"
+  ansible.builtin.shell: |
+    set -e
+    gpg --show-keys --with-colons "{{ kdf_item }}" | awk -F: '/^fpr:/ {print toupper($10)}'
+  args:
+    executable: /bin/bash
+  loop: "{{ keyring_downloaded_files }}"
+  loop_control:
+    loop_var: kdf_item
+  register: _keyring_fprs
+  changed_when: false
+
+- name: "HELPER COMPONENT PACKAGE REPO KEYRING SETUP | {{ keyring_name }} | assert fingerprint(s) match"
+  ansible.builtin.assert:
+    that:
+      - >-
+        (
+          (expected_norm | length == 40 and (actual_list | select('equalto', expected_norm) | list | length) > 0)
+          or
+          (expected_norm | length == 16 and (actual_list | select('search', expected_norm ~ '$') | list | length) > 0)
+        )
+    fail_msg: "Validation failed: key fingerprint mismatch, expected {{ expected_norm }}, got {{ actual_list }}"
+  loop: "{{ keyring_fingerprints }}"
+  loop_control:
+    loop_var: expected_item
+  vars:
+    expected_norm: "{{ expected_item | upper }}"
+    actual_list: "{{ _keyring_fprs.results | map(attribute='stdout_lines') | flatten | list }}"
+
+- name: "HELPER COMPONENT PACKAGE REPO KEYRING SETUP | {{ keyring_name }} | build combined keyring (temp)"
+  ansible.builtin.shell: |
+    set -e
+    cat /var/tmp/ansible-keyrings/{{ keyring_name }}/*.asc > "/var/tmp/ansible-keyrings/{{ keyring_name }}/combined.asc"
+  args:
+    executable: /bin/bash
+  changed_when: false
+  when: keyring_body.type in ["armored_url", "dearmored_url"]
+
+- name: "HELPER COMPONENT PACKAGE REPO KEYRING SETUP | {{ keyring_name }} | dearmor combined keyring (temp)"
+  ansible.builtin.command: |
+    gpg --dearmor --yes -o /var/tmp/ansible-keyrings/{{ keyring_name }}/combined.gpg /var/tmp/ansible-keyrings/{{ keyring_name }}/combined.asc
+  changed_when: false
+  when: keyring_body.type == "dearmored_url"
+
+- name: "HELPER COMPONENT PACKAGE REPO KEYRING SETUP | {{ keyring_name }} | install keyring (armored_url)"
+  ansible.builtin.copy:
+    src: "/var/tmp/ansible-keyrings/{{ keyring_name }}/combined.asc"
+    dest: "{{ keyring_body.dest }}"
+    remote_src: true
+    owner: "{{ keyring_body.owner }}"
+    group: "{{ keyring_body.group }}"
+    mode: "{{ keyring_body.mode }}"
+  when: keyring_body.type == "armored_url"
+
+- name: "HELPER COMPONENT PACKAGE REPO KEYRING SETUP | {{ keyring_name }} | install keyring (dearmored_url)"
+  ansible.builtin.copy:
+    src: "/var/tmp/ansible-keyrings/{{ keyring_name }}/combined.gpg"
+    dest: "{{ keyring_body.dest }}"
+    remote_src: true
+    owner: "{{ keyring_body.owner }}"
+    group: "{{ keyring_body.group }}"
+    mode: "{{ keyring_body.mode }}"
+  when: keyring_body.type == "dearmored_url"
+
+- name: "HELPER COMPONENT PACKAGE REPO KEYRING SETUP | {{ keyring_name }} | cleanup temp dir (optional)"
+  ansible.builtin.file:
+    path: "/var/tmp/ansible-keyrings/{{ keyring_name }}"
+    state: absent
+  changed_when: false

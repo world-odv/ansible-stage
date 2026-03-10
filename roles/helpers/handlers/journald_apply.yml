@@ -1,0 +1,13 @@
+# HELPERS | HANDLERS | JOURNALD APPLY
+
+- name: "JOURNALD APPLY | check unit exists"
+  ansible.builtin.stat:
+    path: "/lib/systemd/system/systemd-journald.service"
+  register: journald_unit
+  changed_when: false
+
+- name: "JOURNALD APPLY | restart"
+  ansible.builtin.systemd:
+    name: "systemd-journald"
+    state: "restarted"
+  when: journald_unit.stat.exists | bool

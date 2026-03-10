@@ -1,0 +1,182 @@
+# HELPERS | HANDLERS | IPTABLES APPLY
+
+- name: "IPTABLES APPLY | check installed"
+  ansible.builtin.stat:
+    path: "/usr/sbin/netfilter-persistent"
+  register: netfilter_persistent_bin
+  changed_when: false
+
+- name: "IPTABLES APPLY | build rules.v4 from base and fragments"
+  ansible.builtin.shell: |
+    set -euo pipefail
+
+    CHANGED=0
+
+    OUT="/etc/iptables/rules.v4"
+    TMP="$(mktemp /etc/iptables/rules.v4.tmp.XXXXXX)"
+    trap 'rm -f "$TMP"' EXIT
+
+    FILTER_BASE="/etc/iptables/rules.v4.base"
+    FILTER_DIR="/etc/iptables/rules.v4.d"
+    NAT_BASE="/etc/iptables/rules.v4.nat.base"
+    NAT_DIR="/etc/iptables/rules.v4.nat.d"
+    MANGLE_BASE="/etc/iptables/rules.v4.mangle.base"
+    MANGLE_DIR="/etc/iptables/rules.v4.mangle.d"
+
+    : > "$TMP"
+
+    append_table() {
+      local tname="$1" base="$2" dir="$3"
+      local have_base=0 have_rules=0
+
+      if [ -s "$base" ]; then have_base=1; fi
+      if [ -d "$dir" ] && ls -1q "$dir"/*.rules >/dev/null 2>&1; then have_rules=1; fi
+
+      if [ "$have_base" -eq 0 ] && [ "$have_rules" -eq 0 ]; then
+        return 0
+      fi
+
+      if [ "$have_base" -eq 1 ]; then
+        cat "$base" >> "$TMP"
+      else
+        echo "*${tname}" >> "$TMP"
+      fi
+
+      if [ "$have_rules" -eq 1 ]; then
+        find "$dir" -maxdepth 1 -type f -name "*.rules" -print | sort | xargs -r cat >> "$TMP"
+      fi
+
+      echo "COMMIT" >> "$TMP"
+      echo >> "$TMP"
+    }
+
+    append_table "filter" "$FILTER_BASE" "$FILTER_DIR"
+    append_table "nat" "$NAT_BASE" "$NAT_DIR"
+    append_table "mangle" "$MANGLE_BASE" "$MANGLE_DIR"
+
+    if [ ! -s "$TMP" ]; then
+      printf 'CHANGED=%s\n' "$CHANGED"
+      exit 0
+    fi
+
+    iptables-restore --test < "$TMP"
+
+    if [ -f "$OUT" ] && cmp -s "$TMP" "$OUT"; then
+      : # no changes
+    else
+      mv -f "$TMP" "$OUT"
+      trap - EXIT
+      CHANGED=1
+    fi
+
+    printf 'CHANGED=%s\n' "$CHANGED"
+  args:
+    executable: "/bin/bash"
+  register: ip4_rules_build
+  changed_when: "'CHANGED=1' in ip4_rules_build.stdout"
+  when: netfilter_persistent_bin.stat.exists | bool
+
+- name: "IPTABLES APPLY | build rules.v6 from base and fragments"
+  ansible.builtin.shell: |
+    set -euo pipefail
+
+    CHANGED=0
+
+    OUT="/etc/iptables/rules.v6"
+    TMP="$(mktemp /etc/iptables/rules.v6.tmp.XXXXXX)"
+    trap 'rm -f "$TMP"' EXIT
+
+    FILTER_BASE="/etc/iptables/rules.v6.base"
+    FILTER_DIR="/etc/iptables/rules.v6.d"
+    NAT_BASE="/etc/iptables/rules.v6.nat.base"
+    NAT_DIR="/etc/iptables/rules.v6.nat.d"
+    MANGLE_BASE="/etc/iptables/rules.v6.mangle.base"
+    MANGLE_DIR="/etc/iptables/rules.v6.mangle.d"
+
+    : > "$TMP"
+
+    append_table() {
+      local tname="$1" base="$2" dir="$3"
+      local have_base=0 have_rules=0
+
+      if [ -s "$base" ]; then have_base=1; fi
+      if [ -d "$dir" ] && ls -1q "$dir"/*.rules >/dev/null 2>&1; then have_rules=1; fi
+
+      if [ "$have_base" -eq 0 ] && [ "$have_rules" -eq 0 ]; then
+        return 0
+      fi
+
+      if [ "$have_base" -eq 1 ]; then
+        cat "$base" >> "$TMP"
+      else
+        echo "*${tname}" >> "$TMP"
+      fi
+
+      if [ "$have_rules" -eq 1 ]; then
+        find "$dir" -maxdepth 1 -type f -name "*.rules" -print | sort | xargs -r cat >> "$TMP"
+      fi
+
+      echo "COMMIT" >> "$TMP"
+      echo >> "$TMP"
+    }
+
+    append_table "filter" "$FILTER_BASE" "$FILTER_DIR"
+    append_table "nat" "$NAT_BASE" "$NAT_DIR"
+    append_table "mangle" "$MANGLE_BASE" "$MANGLE_DIR"
+
+    if [ ! -s "$TMP" ]; then
+      printf 'CHANGED=%s\n' "$CHANGED"
+      exit 0
+    fi
+
+    ip6tables-restore --test < "$TMP"
+
+    if [ -f "$OUT" ] && cmp -s "$TMP" "$OUT"; then
+      : # no changes
+    else
+      mv -f "$TMP" "$OUT"
+      trap - EXIT
+      CHANGED=1
+    fi
+
+    printf 'CHANGED=%s\n' "$CHANGED"
+  args:
+    executable: /bin/bash
+  register: ip6_rules_build
+  changed_when: "'CHANGED=1' in ip6_rules_build.stdout"
+  when: netfilter_persistent_bin.stat.exists | bool
+
+- name: "IPTABLES APPLY | restart"
+  ansible.builtin.systemd:
+    name: "netfilter-persistent"
+    state: "restarted"
+    enabled: true
+  when:
+    - netfilter_persistent_bin.stat.exists | bool
+    - ip4_rules_build is changed or ip6_rules_build is changed
+
+- name: "IPTABLES APPLY | save"
+  ansible.builtin.command: "netfilter-persistent save"
+  changed_when: true
+  when:
+    - netfilter_persistent_bin.stat.exists | bool
+    - ip4_rules_build is changed or ip6_rules_build is changed
+
+- name: "IPTABLES APPLY | restart fail2ban"
+  ansible.builtin.stat:
+    path: "/usr/bin/fail2ban-client"
+  register: fail2ban_bin
+  changed_when: false
+  when:
+    - netfilter_persistent_bin.stat.exists | bool
+    - ip4_rules_build is changed or ip6_rules_build is changed
+
+- name: "IPTABLES APPLY | restart fail2ban"
+  ansible.builtin.systemd:
+    name: "fail2ban"
+    state: "restarted"
+    enabled: true
+  when:
+    - netfilter_persistent_bin.stat.exists | bool
+    - ip4_rules_build is changed or ip6_rules_build is changed
+    - fail2ban_bin.stat.exists | bool

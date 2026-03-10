@@ -1,0 +1,11 @@
+# PROD | REMOTE
+
+- name: PROD | REMOTE
+  hosts:
+    - ingress_gateways
+  gather_facts: true
+  become: true
+
+  roles:
+    - role: helpers
+    - role: remote

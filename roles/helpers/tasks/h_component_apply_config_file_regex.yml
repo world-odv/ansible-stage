@@ -1,0 +1,31 @@
+# HELPERS | TASKS | HELPER COMPONENT APPLY CONFIG FILE REGEX
+# vars:
+#   component_group: string
+#   component_name:  string
+#   config_key:      string
+#   config:          mapping
+#   config_target:   string
+
+- name: "HELPER COMPONENT APPLY CONFIG FILE REGEX | {{ component_group }}:{{ component_name }}:{{ config_key }} | parse + sort regex rules"
+  ansible.builtin.set_fact:
+    regex_rules_sorted: "{{ (config.content | from_json) | sort(attribute='id') }}"
+  changed_when: false
+
+- name: "HELPER COMPONENT APPLY CONFIG FILE REGEX | {{ component_group }}:{{ component_name }}:{{ config_key }} | apply regex rules"
+  ansible.builtin.lineinfile:
+    path: "{{ config_target }}"
+    create: true
+    regexp: "{{ regex_rule_item.regex }}"
+    line: "{{ regex_rule_item.value }}"
+    state: present
+  loop: "{{ regex_rules_sorted }}"
+  loop_control:
+    loop_var: regex_rule_item
+    label: "rule={{ regex_rule_item.id }}"
+  notify: "{{ config.notify | default(omit) }}"
+  no_log: "{{ not (config.log | default(true) | bool) }}"
+
+- name: "HELPER COMPONENT APPLY CONFIG FILE REGEX | {{ component_group }}:{{ component_name }}:{{ config_key }} | validate target (optional)"
+  ansible.builtin.command: "{{ (config.get('validate', '') | default('') | trim) | replace('%s', config_target) }}"
+  changed_when: false
+  when: (config.get('validate', '') | default('') | trim | length) > 0

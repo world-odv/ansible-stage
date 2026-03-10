@@ -1,0 +1,102 @@
+# HELPERS | TASKS | HELPER REPO VALIDATE
+# vars:
+#   repo_name: string
+
+- name: "HELPER REPO VALIDATE | {{ repo_name }} | repo exists"
+  ansible.builtin.assert:
+    that:
+      - key_catalog is defined and key_catalog is mapping
+      - key_catalog.repos is defined and key_catalog.repos is mapping
+      - key_catalog.repos[repo_name] is defined and key_catalog.repos[repo_name] is mapping
+    fail_msg: "Validation failed: repo config is missing or invalid"
+
+- name: "HELPER REPO VALIDATE | {{ repo_name }} | base fields"
+  ansible.builtin.assert:
+    that:
+      - key_catalog.repos[repo_name].type is defined and key_catalog.repos[repo_name].type is string
+      - key_catalog.repos[repo_name].type in ['launchpad_ppa','deb822','legacy_list','ubuntu_archive']
+
+      # suite/components (optional)
+      - key_catalog.repos[repo_name].suite is not defined or
+        (key_catalog.repos[repo_name].suite is string and (key_catalog.repos[repo_name].suite | trim | length) > 0)
+
+      - key_catalog.repos[repo_name].components is not defined
+        or (key_catalog.repos[repo_name].components is sequence and key_catalog.repos[repo_name].components is not string)
+
+      # key (optional)
+      - key_catalog.repos[repo_name].keyring is not defined or (
+          key_catalog.repos[repo_name].keyring is string and
+          key_catalog.keyrings is defined and
+          key_catalog.keyrings is mapping and
+          key_catalog.keyrings[key_catalog.repos[repo_name].keyring] is defined
+        )
+    fail_msg: "Validation failed: repo base fields are invalid"
+
+- name: "HELPER REPO VALIDATE | {{ repo_name }} | launchpad_ppa fields"
+  ansible.builtin.assert:
+    that:
+      - key_catalog.repos[repo_name].ppa is defined
+      - key_catalog.repos[repo_name].ppa is string
+      - (key_catalog.repos[repo_name].ppa | trim | length) > 0
+      - (key_catalog.repos[repo_name].ppa | trim) is match('^[A-Za-z0-9][A-Za-z0-9+.-]*/[A-Za-z0-9][A-Za-z0-9+.-]*$')
+    fail_msg: "Validation failed: ppa must match owner/name"
+  when: key_catalog.repos[repo_name].type == 'launchpad_ppa'
+
+- name: "HELPER REPO VALIDATE | {{ repo_name }} | deb822 fields"
+  ansible.builtin.assert:
+    that:
+      - key_catalog.repos[repo_name].uris is defined and
+        key_catalog.repos[repo_name].uris is sequence and
+        key_catalog.repos[repo_name].uris is not string and
+        (key_catalog.repos[repo_name].uris | length) > 0
+      - key_catalog.repos[repo_name].components is defined and
+        key_catalog.repos[repo_name].components is sequence and
+        key_catalog.repos[repo_name].components is not string and
+        (key_catalog.repos[repo_name].components | length) > 0
+    fail_msg: "Validation failed: deb822 requires uris (or uri) and components"
+  when: key_catalog.repos[repo_name].type == 'deb822'
+
+# cleanup (optional)
+- name: "HELPER REPO VALIDATE | {{ repo_name }} | cleanup structure (optional)"
+  ansible.builtin.assert:
+    that:
+      - key_catalog.repos[repo_name].cleanup is mapping
+      - key_catalog.repos[repo_name].cleanup.files is not defined or
+        (key_catalog.repos[repo_name].cleanup.files is sequence and key_catalog.repos[repo_name].cleanup.files is not string)
+      - key_catalog.repos[repo_name].cleanup.keyrings is not defined or
+        (key_catalog.repos[repo_name].cleanup.keyrings is sequence and key_catalog.repos[repo_name].cleanup.keyrings is not string)
+    fail_msg: "Validation failed: cleanup block must be mapping with optional files and keyrings lists"
+  when: key_catalog.repos[repo_name].cleanup is defined
+
+# pin (optional)
+- name: "HELPER REPO VALIDATE | {{ repo_name }} | pin structure (optional)"
+  ansible.builtin.assert:
+    that:
+      - key_catalog.repos[repo_name].pin is mapping
+      - key_catalog.repos[repo_name].pin.file is defined and key_catalog.repos[repo_name].pin.file is string and (key_catalog.repos[repo_name].pin.file | trim | length) > 0
+      - key_catalog.repos[repo_name].pin.rules is defined and key_catalog.repos[repo_name].pin.rules is sequence and key_catalog.repos[repo_name].pin.rules is not string
+      - (key_catalog.repos[repo_name].pin.rules | length) > 0
+    fail_msg: "Validation failed: pin block must include file and non-empty rules list"
+  when: key_catalog.repos[repo_name].pin is defined
+
+- name: "HELPER REPO VALIDATE | {{ repo_name }} | pin rules fields (optional)"
+  ansible.builtin.assert:
+    that:
+      - rule_item.id is defined and rule_item.id is number
+      - rule_item.package is defined and rule_item.package is string and (rule_item.package | trim | length) > 0
+      - rule_item.pin is defined and rule_item.pin is string and (rule_item.pin | trim | length) > 0
+      - rule_item.priority is defined and rule_item.priority is number
+      - (rule_item.keys() | list | difference(['id','package','pin','priority']) | length) == 0
+    fail_msg: "Validation failed: pin rule is invalid: {{ rule_item | to_json }}"
+  loop: "{{ key_catalog.repos[repo_name].pin.rules | default([]) }}"
+  loop_control:
+    loop_var: rule_item
+    label: "repo={{ repo_name }}:rule={{ rule_item.id | default('NO_ID') }}"
+  when: key_catalog.repos[repo_name].pin is defined
+
+- name: "HELPER REPO VALIDATE | {{ repo_name }} | pin rule ids unique (optional)"
+  ansible.builtin.assert:
+    that:
+      - ((key_catalog.repos[repo_name].pin.rules | map(attribute='id') | list) | unique | length) == (key_catalog.repos[repo_name].pin.rules | length)
+    fail_msg: "Validation failed: duplicate pin rule id found"
+  when: key_catalog.repos[repo_name].pin is defined

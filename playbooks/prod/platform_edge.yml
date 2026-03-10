@@ -1,0 +1,11 @@
+# PROD | PLATFORM EDGE
+
+- name: PROD | PLATFORM EDGE
+  hosts:
+    - ingress_gateways
+  gather_facts: true
+  become: true
+
+  roles:
+    - role: helpers
+    - role: platform_edge

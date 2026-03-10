@@ -1,0 +1,42 @@
+key_updates:
+  apt:
+    enabled: true
+    update_cache: true
+    upgrade: true
+    autoremove: true
+
+key_system:
+  users:
+    root:
+      lock: true
+  hostname:
+    enabled: true
+  locale:
+    enabled: true
+  timezone:
+    enabled: true
+
+key_components:
+  common:
+    base:
+      enabled: true
+  remote:
+    ssh:
+      enabled: true
+  kernel:
+    grub:
+      enabled: true
+    sysctl:
+      enabled: true
+  network:
+    resolved:
+      enabled: true
+  firewall:
+    iptables:
+      enabled: true
+  guard:
+    fail2ban:
+      enabled: true
+      vars:
+        recidive:
+          enabled: true

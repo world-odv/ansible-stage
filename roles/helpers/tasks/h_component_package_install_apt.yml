@@ -1,0 +1,9 @@
+# HELPERS | TASKS | HELPER PACKAGE INSTALL APT
+# vars:
+#   package_name: string
+
+- name: "HELPER PACKAGE INSTALL APT | {{ package_name }} | install"
+  ansible.builtin.apt:
+    name: "{{ key_catalog.packages[package_name].names }}"
+    state: present
+  notify: "{{ key_catalog.packages[package_name].notify | default(omit) }}"

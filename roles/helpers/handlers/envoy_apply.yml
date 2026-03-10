@@ -1,0 +1,31 @@
+# HELPERS | HANDLERS | ENVOY APPLY
+
+- name: "ENVOY APPLY | check installed"
+  ansible.builtin.stat:
+    path: "/usr/bin/envoy"
+  register: envoy_bin
+  changed_when: false
+
+- name: "ENVOY APPLY | check config"
+  ansible.builtin.stat:
+    path: "/etc/envoy/envoy.yaml"
+  register: envoy_config
+  changed_when: false
+
+- name: "ENVOY APPLY | validate config"
+  ansible.builtin.command:
+    cmd: "/usr/bin/envoy --mode validate -c /etc/envoy/envoy.yaml"
+  changed_when: false
+  when:
+    - envoy_bin.stat.exists | bool
+    - envoy_config.stat.exists | bool
+
+- name: "ENVOY APPLY | restart"
+  ansible.builtin.systemd:
+    name: "envoy"
+    state: "restarted"
+    enabled: true
+    daemon_reload: true
+  when:
+    - envoy_bin.stat.exists | bool
+    - key_components.platform_edge.envoy.enabled | bool

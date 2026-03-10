@@ -1,0 +1,88 @@
+# HELPERS | HANDLERS | CLAMAV APPLY
+
+- name: "CLAMAV APPLY | check installed"
+  ansible.builtin.stat:
+    path: "/usr/bin/clamscan"
+  register: clamscan_bin
+  changed_when: false
+
+- name: "CLAMAV APPLY | systemd daemon-reload"
+  ansible.builtin.systemd:
+    daemon_reload: true
+  changed_when: false
+  when: clamscan_bin.stat.exists | bool
+
+- name: "CLAMAV APPLY | enable and start services (when enabled)"
+  ansible.builtin.systemd:
+    name: "{{ clamav_service_item }}"
+    enabled: true
+    state: "started"
+  loop:
+    - "clamav-freshclam"
+    - "clamav-daemon"
+  loop_control:
+    loop_var: clamav_service_item
+  when:
+    - clamscan_bin.stat.exists | bool
+    - (key_components.scan.clamav.enabled | default(false)) | bool
+
+- name: "CLAMAV APPLY | stop and disable services (when disabled)"
+  ansible.builtin.systemd:
+    name: "{{ clamav_service_item }}"
+    enabled: false
+    state: "stopped"
+  loop:
+    - "clamav-freshclam"
+    - "clamav-daemon"
+  loop_control:
+    loop_var: clamav_service_item
+  failed_when: false
+  when:
+    - clamscan_bin.stat.exists | bool
+    - not ((key_components.scan.clamav.enabled | default(false)) | bool)
+
+- name: "CLAMAV APPLY | enable and start timer (full scan)"
+  ansible.builtin.systemd:
+    name: "clamav_scan.timer"
+    enabled: true
+    state: "started"
+  when:
+    - clamscan_bin.stat.exists | bool
+    - (key_components.scan.clamav.enabled | default(false)) | bool
+    - (key_components.scan.clamav.vars.full_scan.enabled | default(false)) | bool
+
+- name: "CLAMAV APPLY | stop and disable timer (full scan disabled)"
+  ansible.builtin.systemd:
+    name: "clamav_scan.timer"
+    enabled: false
+    state: "stopped"
+  failed_when: false
+  when:
+    - clamscan_bin.stat.exists | bool
+    - not ((key_components.scan.clamav.vars.full_scan.enabled | default(false)) | bool)
+
+- name: "CLAMAV APPLY | restart services"
+  ansible.builtin.systemd:
+    name: "{{ clamav_service_item }}"
+    state: "restarted"
+    enabled: true
+  failed_when: false
+  loop:
+    - "clamav-daemon"
+    - "clamav-freshclam"
+  loop_control:
+    loop_var: clamav_service_item
+  when:
+    - clamscan_bin.stat.exists | bool
+    - (key_components.scan.clamav.enabled | default(false)) | bool
+
+- name: "CLAMAV APPLY | restart timer"
+  ansible.builtin.systemd:
+    name: "clamav_scan.timer"
+    state: "restarted"
+    enabled: true
+  failed_when: false
+  when:
+    - clamscan_bin.stat.exists | bool
+    - (key_components.scan.clamav.enabled | default(false)) | bool
+    - (key_components.scan.clamav.vars.full_scan.enabled | default(false)) | bool

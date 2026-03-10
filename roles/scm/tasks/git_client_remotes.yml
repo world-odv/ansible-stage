@@ -1,0 +1,46 @@
+# # SCM | GIT CLIENT > REMOTES
+# vars:
+#   git_repo_item: mapping
+#   git_user: string
+
+- name: "GIT CLIENT | configure remotes (per-repo)"
+  block:
+
+    - name: "GIT CLIENT | list remotes"
+      ansible.builtin.command: "git remote"
+      args:
+        chdir: "{{ git_repo_item.path }}"
+      register: repo_remote_list
+      changed_when: false
+      failed_when: false
+      become: true
+      become_user: "{{ git_user }}"
+
+    - name: "GIT CLIENT | apply each remote"
+      ansible.builtin.shell: |
+        set -euo pipefail
+        cd "{{ git_repo_item.path }}"
+        name="{{ remote_item.key }}"
+        url="{{ remote_item.value }}"
+        if [ -z "${url}" ] || [ "${url}" = "vault" ]; then
+          exit 0
+        fi
+        if git remote get-url "${name}" >/dev/null 2>&1; then
+          git remote set-url "${name}" "${url}"
+        else
+          git remote add "${name}" "${url}"
+        fi
+      args:
+        executable: /bin/bash
+      changed_when: true
+      become: true
+      become_user: "{{ git_user }}"
+      loop: "{{ (git_repo_item.remotes | default({})) | dict2items }}"
+      loop_control:
+        loop_var: remote_item
+        label: "{{ git_repo_item.name }}:{{ remote_item.key }}"
+
+  rescue:
+    - name: "GIT CLIENT | remote config failed"
+      ansible.builtin.debug:
+        msg: "Remote configuration failed for repo={{ git_repo_item.path }}"

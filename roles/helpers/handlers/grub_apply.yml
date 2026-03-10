@@ -1,0 +1,25 @@
+# HELPERS | HANDLERS | GRUB APPLY
+
+- name: "GRUB APPLY | check update-grub exists"
+  ansible.builtin.stat:
+    path: "/usr/sbin/update-grub"
+  register: grub_update_bin
+  changed_when: false
+
+- name: "GRUB APPLY | check grub-mkconfig exists"
+  ansible.builtin.stat:
+    path: "/usr/sbin/grub-mkconfig"
+  register: grub_mkconfig_bin
+  changed_when: false
+
+- name: "GRUB APPLY | update (update-grub)"
+  ansible.builtin.command: "update-grub"
+  changed_when: true
+  when: grub_update_bin.stat.exists | bool
+
+- name: "GRUB APPLY | update (grub-mkconfig fallback)"
+  ansible.builtin.command: "grub-mkconfig -o /boot/grub/grub.cfg"
+  changed_when: true
+  when:
+    - not (grub_update_bin.stat.exists | bool)
+    - grub_mkconfig_bin.stat.exists | bool

@@ -1,0 +1,99 @@
+key_updates:
+  apt:
+    enabled: true
+    update_cache: true
+    upgrade: true
+    autoremove: true
+  snap:
+    enabled: true
+    refresh: true
+    cleanup_old_revisions: true
+
+key_system:
+  users:
+    root:
+      lock: true
+  hostname:
+    enabled: true
+  locale:
+    enabled: true
+    langs: ["en", "ru"]
+  timezone:
+    enabled: true
+    shift: "utc+5"
+  keyboard:
+    enabled: true
+
+key_components:
+  common:
+    base:
+      enabled: true
+  workstation:
+    nextcloud_desktop:
+      enabled: true
+    libreoffice:
+      enabled: true
+    visual_studio_code:
+      enabled: true
+    ansible:
+      enabled: true
+  custom:
+    firefox:
+      enabled: true
+    opera:
+      enabled: true
+    veracrypt:
+      enabled: true
+    keepassxc:
+      enabled: true
+    obsidian:
+      enabled: true
+    telegram:
+      enabled: true
+    vlc:
+      enabled: true
+    tlp:
+      enabled: true
+  remote:
+    ssh:
+      enabled: false
+    ssh_client:
+      enabled: true
+  kernel:
+    grub:
+      enabled: false
+    sysctl:
+      enabled: true
+  observability:
+    journald:
+      enabled: true
+    logrotate:
+      enabled: true
+  backup:
+    timeshift:
+      enabled: true
+  network:
+    resolved:
+      enabled: true
+    wireguard:
+      enabled: true
+  firewall:
+    iptables:
+      enabled: true
+  guard:
+    fail2ban:
+      enabled: true
+      vars:
+        recidive:
+          enabled: true
+  scan:
+    clamav:
+      enabled: true
+      vars:
+        scan:
+          enabled: true
+        freshclam_proxy:
+          enabled: true
+  scm:
+    git_client:
+      enabled: true

@@ -1,0 +1,8 @@
+# COMMON | TASKS | KEYBOARD
+
+- name: "KEYBOARD | set GNOME keyboard toggle for {{ key_system.users.admin.login }}"
+  ansible.builtin.command: >
+    gsettings set org.gnome.desktop.input-sources xkb-options "['{{ key_system.keyboard.gnome.toggle }}']"
+  become: false
+  become_user: "{{ key_system.users.admin.login }}"
+  changed_when: true

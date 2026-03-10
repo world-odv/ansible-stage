@@ -1,0 +1,25 @@
+# HELPERS | TASKS | HELPER COMPONENT APPLY CONFIG FILES
+# vars:
+#   component_group: string
+#   component_name:  string
+#   component_body:  mapping
+
+- name: "HELPER COMPONENT APPLY CONFIG FILES | {{ component_group }}:{{ component_name }} | build ordered files list"
+  ansible.builtin.set_fact:
+    component_config_files_sorted: >-
+      {{
+        (component_body.config.files | dict2items)
+        | sort(attribute='value.id')
+      }}
+  changed_when: false
+
+- name: "HELPER COMPONENT APPLY CONFIG FILES | {{ component_group }}:{{ component_name }} | apply each config file"
+  ansible.builtin.include_tasks: h_component_apply_config_file.yml
+  vars:
+    config_key: "{{ config_item.key }}"
+    config: "{{ config_item.value }}"
+  loop: "{{ component_config_files_sorted }}"
+  loop_control:
+    loop_var: config_item
+    label: "file={{ config_item.key }} use={{ config_item.value.use }} id={{ config_item.value.id }}"
+  when: config_item.value.use | bool

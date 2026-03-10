@@ -1,0 +1,173 @@
+# SCM | GIT CLIENT
+
+- name: "GIT CLIENT | validate"
+  ansible.builtin.assert:
+    that:
+      - key_components.scm.git_client.vars.user is defined and
+        key_components.scm.git_client.vars.user | length > 0 and
+        key_components.scm.git_client.vars.repos is defined
+    fail_msg: >-
+      Validation failed: required variables are incomplete.
+      Required: vars.user, vars.repos.
+  changed_when: false
+
+- name: "GIT CLIENT | setup component"
+  ansible.builtin.include_role:
+    name: helpers
+    tasks_from: h_component_setup.yml
+  vars: { component_group: "scm", component_name: "git_client" }
+
+- name: "GIT CLIENT | set vars"
+  ansible.builtin.set_fact:
+    git_user: "{{ key_components.scm.git_client.vars.user }}"
+    git_repos: "{{ key_components.scm.git_client.vars.repos | default([]) }}"
+    ssh_hosts: "{{ key_components.scm.git_client.vars.ssh_hosts | default([]) }}"
+  changed_when: false
+
+- name: "GIT CLIENT | ensure ~/.ssh and config.d"
+  ansible.builtin.file:
+    path: "{{ ssh_path_item.path }}"
+    state: directory
+    owner: "{{ git_user }}"
+    group: "{{ git_user }}"
+    mode: "{{ ssh_path_item.mode }}"
+  loop:
+    - { path: "/home/{{ git_user }}/.ssh",          mode: "0700" }
+    - { path: "/home/{{ git_user }}/.ssh/config.d", mode: "0700" }
+  loop_control:
+    loop_var: ssh_path_item
+
+- name: "GIT CLIENT | ensure ~/.ssh/config exists"
+  ansible.builtin.file:
+    path: "/home/{{ git_user }}/.ssh/config"
+    state: touch
+    owner: "{{ git_user }}"
+    group: "{{ git_user }}"
+    mode: "0600"
+
+- name: "GIT CLIENT | ensure Include config.d in ~/.ssh/config"
+  ansible.builtin.lineinfile:
+    path: "/home/{{ git_user }}/.ssh/config"
+    line: "Include /home/{{ git_user }}/.ssh/config.d/*.conf"
+    insertbefore: BOF
+    state: present
+
+- name: "GIT CLIENT | write ssh hosts config"
+  ansible.builtin.copy:
+    dest: "/home/{{ git_user }}/.ssh/config.d/910_git_client_hosts.conf"
+    owner: "{{ git_user }}"
+    group: "{{ git_user }}"
+    mode: "0600"
+    content: |
+      {% for h in ssh_hosts %}
+      Host {{ h.host }}
+        HostName {{ h.hostname }}
+        User {{ h.user }}
+        IdentityFile {{ h.private_key_file }}
+        IdentitiesOnly yes
+        StrictHostKeyChecking accept-new
+      {% endfor %}
+
+- name: "GIT CLIENT | stat repo dirs"
+  ansible.builtin.stat:
+    path: "{{ git_repo_item.path }}"
+  register: repo_dir_stats
+  changed_when: false
+  loop: "{{ git_repos }}"
+  loop_control:
+    loop_var: git_repo_item
+
+- name: "GIT CLIENT | create repo dirs when missing"
+  ansible.builtin.file:
+    path: "{{ repo_dir_item.git_repo_item.path }}"
+    state: directory
+    owner: "{{ git_user }}"
+    group: "{{ git_user }}"
+    mode: "0755"
+  when: not (repo_dir_item.stat.exists | bool)
+  loop: "{{ repo_dir_stats.results }}"
+  loop_control:
+    loop_var: repo_dir_item
+
+- name: "GIT CLIENT | check .git exists"
+  ansible.builtin.stat:
+    path: "{{ git_repo_item.path }}/.git"
+  register: repo_git_stats
+  changed_when: false
+  loop: "{{ git_repos }}"
+  loop_control:
+    loop_var: git_repo_item
+
+- name: "GIT CLIENT | init repos"
+  ansible.builtin.command: "git init -b main"
+  args:
+    chdir: "{{ repo_git_item.git_repo_item.path }}"
+  become: true
+  become_user: "{{ git_user }}"
+  when:
+    - (repo_git_item.git_repo_item.init | default(false)) | bool
+    - not (repo_git_item.stat.exists | bool)
+  loop: "{{ repo_git_stats.results }}"
+  loop_control:
+    loop_var: repo_git_item
+
+- name: "GIT CLIENT | ensure repo became a git repo when init requested"
+  ansible.builtin.stat:
+    path: "{{ git_repo_item.path }}/.git"
+  register: repo_git_postcheck
+  changed_when: false
+  loop: "{{ git_repos }}"
+  loop_control:
+    loop_var: git_repo_item
+
+- name: "GIT CLIENT | fail if init requested but .git missing"
+  ansible.builtin.assert:
+    that:
+      - (repo_postcheck_item.git_repo_item.init | default(false) | bool) == false or (repo_postcheck_item.stat.exists | bool)
+    fail_msg: "Validation failed: repository {{ repo_postcheck_item.git_repo_item.path }} should be initialized, but .git is missing"
+  loop: "{{ repo_git_postcheck.results }}"
+  loop_control:
+    loop_var: repo_postcheck_item
+  changed_when: false
+
+- name: "GIT CLIENT | bootstrap README.md (stub, only if missing)"
+  ansible.builtin.copy:
+    dest: "{{ git_repo_item.path }}/README.md"
+    owner: "{{ git_user }}"
+    group: "{{ git_user }}"
+    mode: "0644"
+    force: false
+    content: |
+      # Stub README. Will be replaced later.
+  loop: "{{ git_repos }}"
+  loop_control:
+    loop_var: git_repo_item
+
+- name: "GIT CLIENT | bootstrap .gitignore (repo stub, only if missing)"
+  ansible.builtin.copy:
+    dest: "{{ git_repo_item.path }}/.gitignore"
+    owner: "{{ git_user }}"
+    group: "{{ git_user }}"
+    mode: "0644"
+    force: false
+    content: |
+      # Stub .gitignore for ansible-stage (repo-level).
+      *.retry
+      *.log
+      *.bak
+      *.backup
+      .cache/
+      tmp/
+      vault/
+      **/*.key
+      **/*.pem
+  loop: "{{ git_repos }}"
+  loop_control:
+    loop_var: git_repo_item
+
+- name: "GIT CLIENT | configure remotes"
+  ansible.builtin.include_tasks: git_client_remotes.yml
+  loop: "{{ git_repos }}"
+  loop_control:
+    loop_var: git_repo_item
+    label: "{{ git_repo_item.name }}"

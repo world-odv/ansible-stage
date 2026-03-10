@@ -1,0 +1,32 @@
+# COMMON | TASKS | HOSTNAME
+
+- name: "HOSTNAME | get hostname from inventory name"
+  ansible.builtin.set_fact:
+    desired_hostname: "{{ inventory_hostname | lower | replace('_','-') }}"
+  changed_when: false
+
+- name: "HOSTNAME | validate"
+  ansible.builtin.assert:
+    that:
+      - desired_hostname is match('^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$')
+    fail_msg: >-
+      Validation failed: derived hostname is invalid
+      hostname='{{ desired_hostname }}', source='{{ inventory_hostname }}'
+
+- name: "HOSTNAME | set hostname"
+  ansible.builtin.command: "hostnamectl set-hostname {{ desired_hostname }}"
+  changed_when: true
+
+- name: "HOSTNAME | ensure /etc/hosts has 127.0.1.1 record"
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^127\.0\.1\.1\s+'
+    line: "127.0.1.1 {{ desired_hostname }} {{ desired_hostname }}.localdomain"
+    create: true
+
+- name: "HOSTNAME | ensure /etc/hosts has ansible_host record"
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^{{ (ansible_host | regex_escape) }}\s+'
+    line: "{{ ansible_host }} {{ desired_hostname }}"
+    create: true

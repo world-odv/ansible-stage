@@ -1,0 +1,85 @@
+# COMMON | TASKS | SNAP
+
+- name: "SNAP | refresh snaps: attempt 1"
+  ansible.builtin.command: "snap refresh"
+  register: snap_refresh_1
+  become: true
+  changed_when: snap_refresh_1.rc == 0 and ('All snaps up to date.' not in (snap_refresh_1.stdout | default('')))
+  failed_when: false
+  when: key_updates.snap.refresh | bool
+
+- name: "SNAP | restart snapd: attempt 1 failed"
+  ansible.builtin.systemd:
+    name: "{{ snap_service_item }}"
+    state: restarted
+  loop:
+    - snapd.socket
+    - snapd.service
+  loop_control:
+    loop_var: snap_service_item
+  become: true
+  failed_when: false
+  when:
+    - key_updates.snap.refresh | bool
+    - snap_refresh_1.rc != 0
+
+- name: "SNAP | refresh snaps: attempt 2"
+  ansible.builtin.command: "snap refresh"
+  register: snap_refresh_2
+  become: true
+  changed_when: snap_refresh_2.rc == 0 and ('All snaps up to date.' not in (snap_refresh_2.stdout | default('')))
+  failed_when: false
+  when:
+    - key_updates.snap.refresh | bool
+    - snap_refresh_1.rc != 0
+
+- name: "SNAP | warn if snap refresh still fails"
+  ansible.builtin.debug:
+    msg: |
+      Refresh failed
+      Attempt 1: rc={{ snap_refresh_1.rc }}
+      stderr={{ snap_refresh_1.stderr | default('') }}
+
+      Attempt 2: rc={{ (snap_refresh_2.rc if (snap_refresh_2 is defined) else 'n/a') }}
+      stderr={{ (snap_refresh_2.stderr if (snap_refresh_2 is defined) else '') }}
+  when:
+    - key_updates.snap.refresh | bool
+    - snap_refresh_1.rc != 0
+    - snap_refresh_2 is defined and
+      snap_refresh_2.rc != 0
+
+# Clean old disabled revisions
+- name: "SNAP | list disabled revisions"
+  ansible.builtin.shell: |
+    set -o pipefail
+    snap list --all | awk '$6=="disabled"{print $1 ":" $3}'
+  args:
+    executable: /bin/bash
+  register: snap_disabled
+  changed_when: false
+  failed_when: false
+  when: key_updates.snap.cleanup_old_revisions | bool
+
+- name: "SNAP | remove disabled revisions"
+  ansible.builtin.command: "snap remove {{ snap_revision_item.split(':')[0] }} --revision={{ snap_revision_item.split(':')[1] }}"
+  loop: "{{ snap_disabled.stdout_lines | default([]) }}"
+  loop_control:
+    loop_var: snap_revision_item
+  register: snap_remove_results
+  changed_when: true
+  failed_when: false
+  when:
+    - key_updates.snap.cleanup_old_revisions | bool
+    - (snap_disabled.stdout_lines | default([])) | length > 0
+
+- name: "SNAP | show failed removals (if any)"
+  ansible.builtin.debug:
+    msg: |
+      Cleanup has non-critical errors:
+      {{ snap_remove_results.results
+         | selectattr('rc', 'ne', 0)
+         | map(attribute='stderr')
+         | list }}
+  when:
+    - snap_remove_results is defined
+    - (snap_remove_results.results | selectattr('rc','ne',0) | list | length) > 0

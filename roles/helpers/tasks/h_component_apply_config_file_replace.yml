@@ -1,0 +1,23 @@
+# HELPERS | TASKS | HELPER COMPONENT APPLY CONFIG FILE REPLACE
+# vars:
+#   component_group: string
+#   component_name:  string
+#   config_key:      string
+#   config:          mapping
+#   config_target:   string
+
+- name: "HELPER COMPONENT APPLY CONFIG FILE REPLACE | {{ component_group }}:{{ component_name }}:{{ config_key }} | write content (replace)"
+  ansible.builtin.copy:
+    dest: "{{ config_target }}"
+    owner: "{{ config.file.owner }}"
+    group: "{{ config.file.group }}"
+    mode: "{{ config.file.mode }}"
+    content: "{{ config.content }}"
+    validate: >-
+      {{
+        (config['validate'] | default() | trim)
+        if ((config['validate'] | default() | trim | length) > 0)
+        else omit
+      }}
+  notify: "{{ config.notify | default(omit) }}"
+  no_log: "{{ not (config.log | default(true) | bool) }}"

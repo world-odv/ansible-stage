@@ -1,0 +1,73 @@
+# HELPERS | TASKS | HELPER COMPONENT PACKAGE REPO SETUP
+# vars:
+#   repo_name: string
+
+- name: "HELPER COMPONENT PACKAGE REPO SETUP | {{ repo_name }} | load repo config"
+  ansible.builtin.set_fact:
+    repo_config: "{{ key_catalog.repos[repo_name] }}"
+  changed_when: false
+
+- name: "HELPER COMPONENT PACKAGE REPO SETUP | {{ repo_name }} | setup keyring"
+  ansible.builtin.include_tasks: h_component_package_repo_keyring_setup.yml
+  vars:
+    keyring_name: "{{ repo_config.keyring }}"
+  when:
+    - repo_config.keyring is defined and (repo_config.keyring | trim | length) > 0
+
+- name: "HELPER COMPONENT PACKAGE REPO SETUP | {{ repo_name }} | apply apt pin (optional)"
+  ansible.builtin.copy:
+    dest: "{{ repo_config.pin.file }}"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      {% for rule in (repo_config.pin.rules | sort(attribute='id')) %}
+      Package: {{ rule.package }}
+      Pin: {{ rule.pin }}
+      Pin-Priority: {{ rule.priority }}
+
+      {% endfor %}
+  when:
+    - repo_config.pin is defined and
+      repo_config.pin is mapping
+    - repo_config.pin.file is defined
+    - repo_config.pin.rules is defined
+
+- name: "HELPER COMPONENT PACKAGE REPO SETUP | {{ repo_name }} | add repo (launchpad_ppa)"
+  ansible.builtin.deb822_repository:
+    name: "{{ repo_name }}"
+    types: ["deb"]
+    uris:
+      - "https://ppa.launchpadcontent.net/{{ repo_config.ppa }}/ubuntu"
+    suites:
+      - "{{ repo_config.suite | default(key_catalog.defaults.apt.suite) }}"
+    components: "{{ repo_config.components | default(key_catalog.defaults.apt.components) }}"
+    architectures: "{{ repo_config.architectures | default(key_catalog.defaults.apt.architectures) }}"
+    signed_by: "{{ key_catalog.keyrings[repo_config.keyring].dest }}"
+    state: present
+    install_python_debian: true
+  when: repo_config.type == "launchpad_ppa"
+
+- name: "HELPER COMPONENT PACKAGE REPO SETUP | {{ repo_name }} | assert signed_by is absolute path"
+  ansible.builtin.assert:
+    that:
+      - (key_catalog.keyrings[repo_config.keyring].dest | trim) is match('^/')
+    fail_msg: "Validation failed: keyring destination path for Signed-By must be absolute"
+  when:
+    - repo_config.type == "deb822"
+    - repo_config.keyring is defined
+    - (repo_config.keyring | trim | length) > 0
+
+- name: "HELPER COMPONENT PACKAGE REPO SETUP | {{ repo_name }} | add repo (deb822)"
+  ansible.builtin.deb822_repository:
+    name: "{{ repo_name }}"
+    types: ["deb"]
+    uris: "{{ repo_config.uris | default([repo_config.uri]) }}"
+    suites:
+      - "{{ repo_config.suite | default(key_catalog.defaults.apt.suite) }}"
+    components: "{{ repo_config.components | default(key_catalog.defaults.apt.components) }}"
+    architectures: "{{ repo_config.architectures | default(key_catalog.defaults.apt.architectures) }}"
+    signed_by: "{{ (key_catalog.keyrings[repo_config.keyring].dest | trim) if (repo_config.keyring is defined and (repo_config.keyring | trim | length) > 0) else omit }}"
+    state: present
+    install_python_debian: true
+  when: repo_config.type == "deb822"

@@ -1,0 +1,22 @@
+# COMMON | TASKS | ADMIN
+
+- name: "ADMIN | ensure {{ key_system.users.admin.login }} exists, has groups and set password"
+  ansible.builtin.user:
+    name: "{{ key_system.users.admin.login }}"
+    shell: /bin/bash
+    create_home: true
+    groups: "{{ key_system.users.admin.groups }}"
+    append: true
+    password: "{{ key_system.users.admin.password | password_hash('sha512') }}"
+    update_password: always
+
+- name: "ADMIN | set sudo timeout"
+  ansible.builtin.lineinfile:
+    path: /etc/sudoers.d/custom
+    create: true
+    owner: root
+    group: root
+    mode: "0440"
+    regexp: "^Defaults:{{ key_system.users.admin.login }}\\s+timestamp_timeout="
+    line: "Defaults:{{ key_system.users.admin.login }} timestamp_timeout={{ key_system.users.admin.sudo_timeout }}"
+    validate: "visudo -cf %s"

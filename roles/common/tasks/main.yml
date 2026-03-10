@@ -1,0 +1,51 @@
+# COMMON | TASKS | MAIN
+
+- name: "HELPER VALIDATE CATALOG | maintenance"
+  ansible.builtin.include_role:
+    name: helpers
+    tasks_from: h_catalog_validate.yml
+  when: key_catalog.validate | bool
+
+- name: "STAGE FACT | maintenance"
+  ansible.builtin.include_role:
+    name: helpers
+    tasks_from: h_stage.yml
+  vars: { stage_role: "common", stage_value: "{{ key_components.common.stage }}" }
+
+- name: "APT | maintenance"
+  ansible.builtin.import_tasks: apt.yml
+  when: key_updates.apt.enabled | bool
+
+- name: "SNAP | maintenance"
+  ansible.builtin.import_tasks: snap.yml
+  when: key_updates.snap.enabled | bool
+
+- name: "ADMIN | maintenance"
+  ansible.builtin.import_tasks: admin.yml
+
+- name: "ROOT | maintenance"
+  ansible.builtin.import_tasks: root.yml
+  when: key_system.users.root.lock | bool
+
+- name: HOSTNAME | maintenance
+  ansible.builtin.import_tasks: hostname.yml
+  when: key_system.hostname.enabled | bool
+
+- name: LOCALE | maintenance
+  ansible.builtin.import_tasks: locale.yml
+  when: key_system.locale.enabled | bool
+
+- name: TIMEZONE | maintenance
+  ansible.builtin.import_tasks: timezone.yml
+  when: key_system.timezone.enabled | bool
+
+- name: KEYBOARD | maintenance
+  ansible.builtin.import_tasks: keyboard.yml
+  when: key_system.keyboard.enabled | bool
+
+- name: CURL | maintenance
+  ansible.builtin.include_role:
+    name: helpers
+    tasks_from: h_component_setup.yml
+  vars: { component_group: "common", component_name: "base" }
+  when: key_components.common.base.enabled | bool

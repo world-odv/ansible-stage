@@ -1,0 +1,97 @@
+# CUSTOM | TASKS | TLP
+
+- name: "TPL | setup component"
+  ansible.builtin.include_role:
+    name: helpers
+    tasks_from: h_component_setup.yml
+  vars: { component_group: "custom", component_name: "tlp" }
+
+- name: "TLP | check thinkpad_acpi loaded"
+  ansible.builtin.command: "lsmod"
+  register: _tlp_lsmod
+  changed_when: false
+  failed_when: false
+
+- name: "TLP | check thinkpad_acpi module exists"
+  ansible.builtin.command: "modinfo thinkpad_acpi"
+  register: _tpacpi_exists
+  changed_when: false
+  failed_when: false
+
+- name: "TLP | modprobe thinkpad_acpi"
+  ansible.builtin.command: "modprobe thinkpad_acpi"
+  changed_when: true
+  failed_when: false
+  when:
+    - _tpacpi_exists.rc == 0
+    - (_tlp_lsmod.stdout is not search('^thinkpad_acpi\\s', multiline=true))
+
+- name: "TLP | ensure thinkpad_acpi autoload"
+  ansible.builtin.copy:
+    dest: "/etc/modules-load.d/thinkpad_acpi.conf"
+    owner: "root"
+    group: "root"
+    mode: "0644"
+    content: |
+      Thinkpad_acpi
+      thinkpad_acpi
+  changed_when: true
+  failed_when: false
+  when:
+    - _tpacpi_exists.rc == 0
+
+- name: "TLP | enable and start service"
+  ansible.builtin.systemd:
+    name: "tlp"
+    enabled: true
+    state: "started"
+
+- name: "TLP | list batteries (BAT*)"
+  ansible.builtin.command: "ls -1 /sys/class/power_supply"
+  register: _ps_list
+  changed_when: false
+  failed_when: false
+
+- name: "TLP | build batteries list"
+  ansible.builtin.set_fact:
+    _batteries: >-
+      {{
+        (_ps_list.stdout_lines | default([]))
+        | select('match', '^BAT[0-9]+$')
+        | list
+      }}
+  changed_when: false
+
+- name: "TLP | write thresholds to sysfs"
+  ansible.builtin.shell: |
+    set -o pipefail
+
+    START_VAL="$(printf '%s\n' "{{ component_body.config.files.tlp.content | default('') }}" \
+      | awk -F= '/^START_CHARGE_THRESH_BAT0=/ {gsub(/[^0-9]/,"",$2); print $2; exit}')"
+
+    STOP_VAL="$(printf '%s\n' "{{ component_body.config.files.tlp.content | default('') }}" \
+      | awk -F= '/^STOP_CHARGE_THRESH_BAT0=/ {gsub(/[^0-9]/,"",$2); print $2; exit}')"
+
+    [ -n "${START_VAL}" ] || START_VAL="20"
+    [ -n "${STOP_VAL}" ]  || STOP_VAL="80"
+
+    START_PATH="/sys/class/power_supply/{{ battery_item }}/charge_control_start_threshold"
+    END_PATH="/sys/class/power_supply/{{ battery_item }}/charge_control_end_threshold"
+
+    if [ -e "${START_PATH}" ]; then
+      echo "${START_VAL}" > "${START_PATH}"
+    fi
+
+    if [ -e "${END_PATH}" ]; then
+      echo "${STOP_VAL}" > "${END_PATH}"
+    fi
+  args:
+    executable: "/bin/bash"
+  changed_when: true
+  failed_when: false
+  loop: "{{ _batteries | default([]) }}"
+  loop_control:
+    loop_var: battery_item
+    label: "{{ battery_item }}"
+  when:
+    - (_batteries | default([]) | length) > 0

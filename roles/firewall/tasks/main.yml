@@ -1,0 +1,20 @@
+# FIREWALL | TASKS | MAIN
+
+- name: "HELPER VALIDATE CATALOG | maintenance"
+  ansible.builtin.include_role:
+    name: helpers
+    tasks_from: h_catalog_validate.yml
+  when: key_catalog.validate | bool
+
+- name: "STAGE FACT | maintenance"
+  ansible.builtin.include_role:
+    name: helpers
+    tasks_from: h_stage.yml
+  vars: { stage_role: "firewall", stage_value: "{{ key_components.firewall.stage }}" }
+
+- name: IPTABLES | maintenance
+  ansible.builtin.include_role:
+    name: helpers
+    tasks_from: h_component_setup.yml
+  vars: { component_group: "firewall", component_name: "iptables" }
+  when: key_components.firewall.iptables.enabled | bool

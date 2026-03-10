@@ -1,0 +1,44 @@
+# HELPERS | HANDLERS | SINGBOX APPLY
+
+- name: "SINGBOX APPLY | vars"
+  ansible.builtin.set_fact:
+    sb_service_name: "sing-box"
+    sb_config_file: "{{ '/etc/sing-box/config.json' if key_components.network.singbox.tier == 'server' else '/etc/sing-box/client.json' }}"
+  changed_when: false
+
+- name: "SINGBOX APPLY | check installed"
+  ansible.builtin.stat:
+    path: "/usr/bin/sing-box"
+  register: singbox_bin
+  changed_when: false
+
+- name: "SINGBOX APPLY | ensure runtime dirs"
+  ansible.builtin.file:
+    path: "{{ sb_runtime_item.path }}"
+    state: directory
+    owner: "{{ sb_runtime_item.owner }}"
+    group: "{{ sb_runtime_item.group }}"
+    mode: "{{ sb_runtime_item.mode }}"
+  loop:
+    - { path: "/var/log/sing-box", owner: "root", group: "root", mode: "0755" }
+    - { path: "/var/lib/sing-box", owner: "root", group: "root", mode: "0755" }
+  loop_control:
+    loop_var: sb_runtime_item
+    label: "{{ sb_runtime_item.path }}"
+  when: singbox_bin.stat.exists | bool
+
+- name: "SINGBOX APPLY | validate config"
+  ansible.builtin.command:
+    cmd: "/usr/bin/sing-box check -c {{ sb_config_file }}"
+  changed_when: false
+  when: singbox_bin.stat.exists | bool
+
+- name: "SINGBOX APPLY | restart"
+  ansible.builtin.systemd:
+    name: "{{ sb_service_name }}"
+    state: restarted
+    enabled: true
+    daemon_reload: true
+  when:
+    - singbox_bin.stat.exists | bool
+    - key_components.network.singbox.enabled | bool

@@ -1,0 +1,72 @@
+# NETWORK | TASKS | SINGBOX
+
+- name: "SINGBOX | vars"
+  ansible.builtin.set_fact:
+    sb_tier: "{{ key_components.network.singbox.tier | default('') }}"
+    sb_service_name: "sing-box"
+    sb_config_file: >-
+      {{
+        '/etc/sing-box/server.json'
+        if (key_components.network.singbox.tier | default('') == 'server')
+        else '/etc/sing-box/client.json'
+      }}
+  changed_when: false
+
+- name: "SINGBOX | validate tier"
+  ansible.builtin.assert:
+    that:
+      - sb_tier in ['server', 'client']
+    fail_msg: "Validation failed: tier must be server or client"
+
+- name: "SINGBOX | component setup"
+  ansible.builtin.include_role:
+    name: helpers
+    tasks_from: h_component_setup.yml
+  vars:
+    component_group: "network"
+    component_name: "singbox"
+
+- name: "SINGBOX | flush handlers"
+  ansible.builtin.meta: flush_handlers
+
+- name: "SINGBOX | enable and start"
+  block:
+    - name: "SINGBOX | systemd start"
+      ansible.builtin.systemd:
+        name: "{{ sb_service_name }}"
+        enabled: true
+        state: started
+        daemon_reload: true
+
+  rescue:
+    - name: "SINGBOX | diag | systemctl status"
+      ansible.builtin.command:
+        cmd: "systemctl status {{ sb_service_name }} --no-pager -l"
+      register: sb_status
+      changed_when: false
+      failed_when: false
+
+    - name: "SINGBOX | diag | journalctl"
+      ansible.builtin.command:
+        cmd: "journalctl -xeu {{ sb_service_name }} --no-pager -n 200"
+      register: sb_journal
+      changed_when: false
+      failed_when: false
+
+    - name: "SINGBOX | diag | show config"
+      ansible.builtin.command:
+        cmd: "sed -n '1,260p' {{ sb_config_file }}"
+      register: sb_conf
+      changed_when: false
+      failed_when: false
+
+    - name: "SINGBOX | diag output"
+      ansible.builtin.debug:
+        msg:
+          - "{{ sb_status.stdout_lines | default([]) }}"
+          - "{{ sb_journal.stdout_lines | default([]) }}"
+          - "{{ sb_conf.stdout_lines | default([]) }}"
+
+    - name: "SINGBOX | fail"
+      ansible.builtin.fail:
+        msg: "Service start failed, diagnostics are shown above"

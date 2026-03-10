@@ -1,0 +1,41 @@
+# PLATFORM EDGE | TASKS | MAIN
+
+- name: "HELPER VALIDATE CATALOG | maintenance"
+  ansible.builtin.include_role:
+    name: helpers
+    tasks_from: h_catalog_validate.yml
+  when: key_catalog.validate | bool
+
+- name: "STAGE FACT | maintenance"
+  ansible.builtin.include_role:
+    name: helpers
+    tasks_from: h_stage.yml
+  vars: { stage_role: "platform_edge", stage_value: "{{ key_components.platform_edge.stage }}" }
+
+- name: "CERTBOT | verify tls paths with envoy"
+  ansible.builtin.assert:
+    that:
+      - key_components.platform_edge.envoy.vars.tls.cert_chain == ("/etc/letsencrypt/live/" ~ key_components.platform_edge.certbot.vars.cert_name ~ "/fullchain.pem")
+      - key_components.platform_edge.envoy.vars.tls.private_key == ("/etc/letsencrypt/live/" ~ key_components.platform_edge.certbot.vars.cert_name ~ "/privkey.pem")
+    fail_msg: >-
+      Validation failed: certbot/envoy certificate paths mismatch.
+      certbot cert_name="{{ key_components.platform_edge.certbot.vars.cert_name }}",
+      envoy cert_chain="{{ key_components.platform_edge.envoy.vars.tls.cert_chain }}",
+      envoy private_key="{{ key_components.platform_edge.envoy.vars.tls.private_key }}"
+  when:
+    - key_components.platform_edge.certbot.enabled | bool
+    - key_components.platform_edge.envoy.enabled | bool
+
+- name: "CERTBOT | maintenance"
+  ansible.builtin.include_role:
+    name: helpers
+    tasks_from: h_component_setup.yml
+  vars: { component_group: "platform_edge", component_name: "certbot" }
+  when: key_components.platform_edge.certbot.enabled | bool
+
+- name: "ENVOY | maintenance"
+  ansible.builtin.include_role:
+    name: helpers
+    tasks_from: h_component_setup.yml
+  vars: { component_group: "platform_edge", component_name: "envoy" }
+  when: key_components.platform_edge.envoy.enabled | bool

@@ -1,0 +1,48 @@
+# HELPERS | HANDLERS | RESOLVED APPLY
+
+- name: "RESOLVED APPLY | check installed"
+  ansible.builtin.stat:
+    path: "/usr/bin/resolvectl"
+  register: resolvectl_bin
+  changed_when: false
+  failed_when: false
+
+- name: "RESOLVED APPLY | restart"
+  ansible.builtin.systemd:
+    name: "systemd-resolved"
+    state: "restarted"
+    enabled: true
+  when: resolvectl_bin.stat.exists | bool
+
+- name: "RESOLVED APPLY | flush caches"
+  ansible.builtin.command: "resolvectl flush-caches"
+  changed_when: false
+  failed_when: false
+  when: resolvectl_bin.stat.exists | bool
+
+- name: "RESOLVED APPLY | debug snapshot (resolvectl: status, query, journal)"
+  ansible.builtin.shell: |
+    set -e
+
+    echo "### resolvectl status"
+    resolvectl status || true
+    echo
+
+    echo "### resolvectl query example.com"
+    resolvectl query example.com || true
+    echo
+
+    echo "### journalctl -u systemd-resolved"
+    journalctl -u systemd-resolved --no-pager -n 20 || true
+  args:
+    executable: /bin/bash
+  register: resolved_debug_snapshot
+  changed_when: false
+  failed_when: false
+  when: resolvectl_bin.stat.exists | bool
+
+- name: "RESOLVED APPLY | print debug snapshot"
+  ansible.builtin.debug:
+    msg: "{{ resolved_debug_snapshot.stdout_lines }}"
+  changed_when: false
+  when: resolvectl_bin.stat.exists | bool

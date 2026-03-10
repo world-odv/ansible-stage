@@ -1,0 +1,17 @@
+# SCM | TASKS | MAIN
+
+- name: "HELPER VALIDATE CATALOG | maintenance"
+  ansible.builtin.include_role:
+    name: helpers
+    tasks_from: h_catalog_validate.yml
+  when: key_catalog.validate | bool
+
+- name: "STAGE FACT | maintenance"
+  ansible.builtin.include_role:
+    name: helpers
+    tasks_from: h_stage.yml
+  vars: { stage_role: "scm", stage_value: "{{ key_components.scm.stage }}" }
+
+- name: "GIT CLIENT | maintenance"
+  ansible.builtin.import_tasks: git_client.yml
+  when: key_components.scm.git_client.enabled | bool

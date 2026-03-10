@@ -1,0 +1,51 @@
+# COMMON | TASKS | TIMEZONE
+
+- name: "TIMEZONE | validate"
+  ansible.builtin.assert:
+    that:
+      - key_system.timezone.shift is defined and
+        key_system.timezone.shift is string and
+        (key_system.timezone.shift | lower) is match('^utc[+-][0-9]{1,2}$')
+    fail_msg: "Validation failed: timezone format is invalid"
+
+- name: "TIMEZONE | parse shift to offset"
+  ansible.builtin.set_fact:
+    tz_sign: "{{ (key_system.timezone.shift | lower) | regex_replace('^utc([+-])[0-9]{1,2}$', '\\1') }}"
+    tz_hours: "{{ (key_system.timezone.shift | lower) | regex_replace('^utc[+-]([0-9]{1,2})$', '\\1') | int }}"
+  changed_when: false
+
+- name: "TIMEZONE | validate offset range (-12..+14)"
+  ansible.builtin.assert:
+    that:
+      - tz_hours >= 0
+      - (tz_sign == '+' and tz_hours <= 14) or (tz_sign == '-' and tz_hours <= 12)
+    fail_msg: "Validation failed: UTC offset must be in range utc-12..utc+14"
+
+- name: "TIMEZONE | compute offset int"
+  ansible.builtin.set_fact:
+    tz_offset: "{{ (tz_hours if tz_sign == '+' else (0 - tz_hours)) }}"
+  changed_when: false
+
+- name: "TIMEZONE | compute target timezone name"
+  ansible.builtin.set_fact:
+    tz_target: >-
+      {{
+        'Etc/UTC'
+        if (tz_offset | int) == 0
+        else
+          ('Etc/GMT-' ~ (tz_offset | int))
+          if (tz_offset | int) > 0
+          else
+          ('Etc/GMT+' ~ ((tz_offset | int) | abs))
+      }}
+  changed_when: false
+
+- name: "TIMEZONE | read current timezone"
+  ansible.builtin.command: timedatectl show -p Timezone --value
+  register: tz_current
+  changed_when: false
+
+- name: "TIMEZONE | set timezone"
+  ansible.builtin.command: "timedatectl set-timezone {{ tz_target }}"
+  when: (tz_current.stdout | trim) != (tz_target | trim)
+  changed_when: true

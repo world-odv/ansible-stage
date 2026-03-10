@@ -1,0 +1,36 @@
+# HELPERS | HANDLERS | NETWORKMANAGER APPLY
+
+- name: "NETWORKMANAGER APPLY | check nmcli exists"
+  ansible.builtin.stat:
+    path: "/usr/bin/nmcli"
+  register: nmcli_bin
+  changed_when: false
+
+- name: "NETWORKMANAGER APPLY | enforce ignore-auto-dns for active connections"
+  ansible.builtin.shell: |
+    set -e
+    ENFORCE="{{ '1' if key_components.network.resolved.vars.enforce_no_dhcp_dns else '0' }}"
+    [ "$ENFORCE" = "1" ] || exit 0
+
+    nmcli -t -f NAME connection show --active | while read -r CONN; do
+      [ -n "$CONN" ] || continue
+      nmcli connection modify "$CONN" \
+        ipv4.ignore-auto-dns yes ipv6.ignore-auto-dns yes \
+        ipv4.dns "" ipv6.dns "" \
+        ipv4.dns-search "" ipv6.dns-search "" || true
+    done
+
+    nmcli -t -f DEVICE,STATE device | awk -F: '$2=="connected"{print $1}' | while read -r DEV; do
+      nmcli device reapply "$DEV" >/dev/null 2>&1 || true
+    done
+  args:
+    executable: /bin/bash
+  changed_when: true
+  failed_when: false
+  when: nmcli_bin.stat.exists | bool
+
+- name: "NETWORKMANAGER APPLY | restart systemd-resolved (to drop old per-link DNS)"
+  ansible.builtin.systemd:
+    name: "systemd-resolved"
+    state: "restarted"
+  when: nmcli_bin.stat.exists | bool

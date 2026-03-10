@@ -1,0 +1,105 @@
+# NETWORK | TASKS | WIREGUARD
+
+- name: "WIREGUARD | vars"
+  ansible.builtin.set_fact:
+    wg_tier: "{{ ((key_components.get('network', {})).get('wireguard', {})).get('tier', '') }}"
+    wg_profiles: "{{ ((key_components.get('network', {})).get('wireguard', {})).get('profiles', {}) }}"
+  changed_when: false
+
+- name: "WIREGUARD | validate tier"
+  ansible.builtin.assert:
+    that:
+      - wg_tier in ['server', 'client']
+    fail_msg: "Validation failed: tier must be server or client"
+
+- name: "WIREGUARD | validate profiles"
+  ansible.builtin.assert:
+    that:
+      - wg_profiles is mapping
+      - (wg_profiles.get(wg_tier, {})) is mapping
+    fail_msg: "Validation failed: profiles for selected tier are missing"
+
+- name: "WIREGUARD | validate interface"
+  ansible.builtin.set_fact:
+    wg_iface: "{{ (wg_profiles.get(wg_tier, {})).get('interface', {}) }}"
+    wg_peers: "{{ (wg_profiles.get(wg_tier, {})).get('peers', []) }}"
+  changed_when: false
+
+- name: "WIREGUARD | validate interface fields"
+  ansible.builtin.assert:
+    that:
+      - wg_iface is mapping
+      - (wg_iface.get('address', '') | trim | length) > 0
+      - (wg_iface.get('private_key', '') | trim | length) > 0
+      - (wg_iface.get('private_key', '') | trim) != 'vault'
+    fail_msg: "Validation failed: interface requires address and private_key"
+
+- name: "WIREGUARD | validate peers"
+  ansible.builtin.assert:
+    that:
+      - wg_peers is sequence
+      - (wg_peers | length) >= 1
+    fail_msg: "Validation failed: peers list must be non-empty"
+
+- name: "WIREGUARD | validate server listen_port"
+  ansible.builtin.assert:
+    that:
+      - ((wg_profiles.get('server', {}).get('interface', {}).get('listen_port', 0)) | int) > 0
+    fail_msg: "Validation failed: server listen_port must be greater than 0"
+  when: wg_tier == 'server'
+
+- name: "WIREGUARD | validate client endpoint"
+  ansible.builtin.assert:
+    that:
+      - ((wg_profiles.get('client', {}).get('peers', []) | length) >= 1)
+      - (((wg_profiles.get('client', {}).get('peers', [])[0]).get('endpoint', '') | trim | length) > 0)
+    fail_msg: "Validation failed: client peer endpoint is required"
+  when: wg_tier == 'client'
+
+- name: "WIREGUARD | setup component"
+  ansible.builtin.include_role:
+    name: helpers
+    tasks_from: h_component_setup.yml
+  vars:
+    component_group: "network"
+    component_name: "wireguard"
+
+- name: "WIREGUARD | start wg-quick"
+  block:
+    - name: "WIREGUARD | systemd start"
+      ansible.builtin.systemd:
+        name: "wg-quick@wg0"
+        enabled: true
+        state: "started"
+  rescue:
+    - name: "WIREGUARD | diag: systemctl"
+      ansible.builtin.command:
+        cmd: "systemctl status wg-quick@wg0 --no-pager -l"
+      register: wg_status
+      changed_when: false
+      failed_when: false
+
+    - name: "WIREGUARD | diag: journalctl"
+      ansible.builtin.command:
+        cmd: "journalctl -xeu wg-quick@wg0 --no-pager -n 200"
+      register: wg_journal
+      changed_when: false
+      failed_when: false
+
+    - name: "WIREGUARD | diag: show config"
+      ansible.builtin.command:
+        cmd: "sed -n '1,220p' /etc/wireguard/wg0.conf"
+      register: wg_conf
+      changed_when: false
+      failed_when: false
+
+    - name: "WIREGUARD | diag output"
+      ansible.builtin.debug:
+        msg:
+          - "{{ wg_status.stdout_lines | default([]) }}"
+          - "{{ wg_journal.stdout_lines | default([]) }}"
+          - "{{ wg_conf.stdout_lines | default([]) }}"
+
+    - name: "WIREGUARD | fail"
+      ansible.builtin.fail:
+        msg: "Service start failed, diagnostics are shown above"

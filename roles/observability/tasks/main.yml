@@ -1,0 +1,27 @@
+# OBSERVABILITY | TASKS | MAIN
+
+- name: "HELPER VALIDATE CATALOG | maintenance"
+  ansible.builtin.include_role:
+    name: helpers
+    tasks_from: h_catalog_validate.yml
+  when: key_catalog.validate | bool
+
+- name: "STAGE FACT | maintenance"
+  ansible.builtin.include_role:
+    name: helpers
+    tasks_from: h_stage.yml
+  vars: { stage_role: "observability", stage_value: "{{ key_components.observability.stage }}" }
+
+- name: "JOURNALD | maintenance"
+  ansible.builtin.include_role:
+    name: helpers
+    tasks_from: h_component_setup.yml
+  vars: { component_group: "observability", component_name: "journald" }
+  when: key_components.observability.journald.enabled | bool
+
+- name: "LOGROTATE | maintenance"
+  ansible.builtin.include_role:
+    name: helpers
+    tasks_from: h_component_setup.yml
+  vars: { component_group: "observability", component_name: "logrotate" }
+  when: key_components.observability.logrotate.enabled | bool

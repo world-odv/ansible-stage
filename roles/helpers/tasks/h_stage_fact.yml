@@ -1,0 +1,83 @@
+# HELPERS | TASKS | HELPER STAGE FACT
+# vars:
+#   stage_role: string
+#   stage_value: number
+
+- name: "HELPER STAGE FACT | assert role stage vars defined"
+  ansible.builtin.assert:
+    that:
+      - stage_role is defined
+      - stage_value is defined
+    fail_msg: "Validation failed: stage_role and stage_value must be defined"
+
+- name: "HELPER STAGE FACT | ensure facts dir exists"
+  ansible.builtin.file:
+    path: /etc/ansible/facts.d
+    state: directory
+    owner: "root"
+    group: "root"
+    mode: "0755"
+
+- name: "HELPER STAGE FACT | check stage.fact exists"
+  ansible.builtin.stat:
+    path: /etc/ansible/facts.d/stage.fact
+  register: stage_fact_stat
+  changed_when: false
+
+- name: "HELPER STAGE FACT | create stage.fact if missing"
+  ansible.builtin.copy:
+    dest: /etc/ansible/facts.d/stage.fact
+    owner: "root"
+    group: "root"
+    mode: "0644"
+    content: |
+      {
+        "stage": {{ stage_value | int }},
+        "role": "{{ stage_role }}",
+        "update_date": "{{ ansible_facts['date_time']['iso8601'] }}",
+        "created_date": "{{ ansible_facts['date_time']['iso8601'] }}"
+      }
+  when: not stage_fact_stat.stat.exists
+  register: stage_fact_created
+
+- name: "HELPER STAGE FACT | read stage.fact"
+  ansible.builtin.slurp:
+    src: /etc/ansible/facts.d/stage.fact
+  register: stage_fact_raw
+  when: stage_fact_stat.stat.exists
+  changed_when: false
+
+- name: "HELPER STAGE FACT | parse stage.fact"
+  ansible.builtin.set_fact:
+    stage_fact_current: "{{ (stage_fact_raw.content | b64decode) | from_json }}"
+  when: stage_fact_stat.stat.exists
+  changed_when: false
+
+- name: "HELPER STAGE FACT | compute new stage"
+  ansible.builtin.set_fact:
+    stage_fact_new_stage: "{{ [ (stage_fact_current.stage | int), (stage_value | int) ] | max }}"
+  when: stage_fact_stat.stat.exists
+  changed_when: false
+
+- name: "HELPER STAGE FACT | update stage.fact (stage monotonic + update_date + role)"
+  ansible.builtin.copy:
+    dest: /etc/ansible/facts.d/stage.fact
+    owner: "root"
+    group: "root"
+    mode: "0644"
+    content: |
+      {
+        "stage": {{ stage_fact_new_stage | int }},
+        "role": "{{ stage_role }}",
+        "update_date": "{{ ansible_facts['date_time']['iso8601'] }}",
+        "created_date": "{{ stage_fact_current.created_date }}"
+      }
+  register: stage_fact_updated_write
+  when: stage_fact_stat.stat.exists
+  changed_when: false
+
+- name: "HELPER STAGE FACT | re-gather local facts if stage.fact changed"
+  ansible.builtin.setup:
+    gather_subset:
+      - "!all"
+      - "local"

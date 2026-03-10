@@ -1,0 +1,41 @@
+# HELPERS | HANDLERS | FAIL2BAN APPLY
+
+- name: "FAIL2BAN APPLY | check installed"
+  ansible.builtin.stat:
+    path: "/usr/bin/fail2ban-client"
+  register: fail2ban_bin
+  changed_when: false
+
+- name: "FAIL2BAN APPLY | enable and start (when enabled)"
+  ansible.builtin.systemd:
+    name: "fail2ban"
+    enabled: true
+    state: "started"
+  when:
+    - (key_components.guard.fail2ban.enabled | default(false)) | bool
+    - fail2ban_bin.stat.exists | bool
+
+- name: "FAIL2BAN APPLY | stop and disable (when disabled)"
+  ansible.builtin.systemd:
+    name: "fail2ban"
+    enabled: false
+    state: "stopped"
+  when:
+    - not ((key_components.guard.fail2ban.enabled | default(false)) | bool)
+    - fail2ban_bin.stat.exists | bool
+
+- name: "FAIL2BAN APPLY | test config"
+  ansible.builtin.command: "fail2ban-client -t"
+  changed_when: false
+  when:
+    - fail2ban_bin.stat.exists | bool
+    - (key_components.guard.fail2ban.enabled | default(false)) | bool
+
+- name: "FAIL2BAN APPLY | restart"
+  ansible.builtin.systemd:
+    name: "fail2ban"
+    state: "restarted"
+    enabled: true
+  when:
+    - fail2ban_bin.stat.exists | bool
+    - (key_components.guard.fail2ban.enabled | default(false)) | bool

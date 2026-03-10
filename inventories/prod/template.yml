@@ -1,0 +1,38 @@
+# Fill this file as host_vars/<host>/vault.yml for PROD hosts.
+# Keep this file unencrypted only as a template.
+# Real host_vars/<host>/vault.yml should be encrypted with ansible-vault.
+
+# Connection
+ansible_host: XXX.XXX.XXX.XXX
+ansible_user: "login"
+ansible_password: "password"
+ansible_become_password: "{{ ansible_password }}"
+ansible_port: 22
+
+# Optional: if key auth is used instead of password
+# ansible_ssh_private_key_file: "/home/<user>/.ssh/id_ed25519"
+
+# Optional: override per host admin user fields from group_vars/all/main.yml
+# key_system:
+#   users:
+#     admin:
+#       login: "admin"
+#       password: "strong_password_here"
+
+# Optional: secrets for enabled components (examples)
+# key_components:
+#   remote:
+#     ssh:
+#       vars:
+#         rpf:
+#           public_keys:
+#             - "ssh-ed25519 AAAA..."
+#           permit_listen:
+#             - "127.0.0.1:2222"
+#
+#   platform_edge:
+#     certbot:
+#       vars:
+#         beget:
+#           username: "dns_api_login"
+#           password: "dns_api_password"
